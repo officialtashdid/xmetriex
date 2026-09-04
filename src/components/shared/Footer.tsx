@@ -1,14 +1,9 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
-import { GraduationCap, MessageCircle, Facebook, Shield } from "lucide-react";
+import { GraduationCap, MessageCircle, Facebook } from "lucide-react";
 
-interface FooterProps {
-  onOpenTeacherLogin?: () => void;
-}
-
-export const Footer: React.FC<FooterProps> = ({ onOpenTeacherLogin }) => {
+export const Footer: React.FC = () => {
   const whatsappNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "8801577301529";
   const facebookUrl = process.env.NEXT_PUBLIC_FACEBOOK_URL || "https://facebook.com/aarohon.edu";
 
@@ -42,21 +37,6 @@ export const Footer: React.FC<FooterProps> = ({ onOpenTeacherLogin }) => {
           >
             <Facebook className="w-4 h-4 text-indigo-400" /> Facebook
           </a>
-          {onOpenTeacherLogin ? (
-            <button
-              onClick={onOpenTeacherLogin}
-              className="bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 px-3 py-1.5 rounded-xl text-sm font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              <Shield className="w-4 h-4 text-amber-300" /> Teacher Panel
-            </button>
-          ) : (
-            <Link
-              href="/admin"
-              className="bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 px-3 py-1.5 rounded-xl text-sm font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              <Shield className="w-4 h-4 text-amber-300" /> Teacher Panel
-            </Link>
-          )}
         </div>
       </div>
     </footer>

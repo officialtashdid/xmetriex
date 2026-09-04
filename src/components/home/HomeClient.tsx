@@ -26,7 +26,6 @@ import type { DailyNewsItem } from "@/actions/news-actions";
 const EnrollModal = dynamic(() => import("@/components/modals/EnrollModal").then((m) => m.EnrollModal), { ssr: false });
 const StudentAuthModal = dynamic(() => import("@/components/modals/StudentAuthModal").then((m) => m.StudentAuthModal), { ssr: false });
 const StudentPortalLoginModal = dynamic(() => import("@/components/modals/StudentPortalLoginModal").then((m) => m.StudentPortalLoginModal), { ssr: false });
-const TeacherLoginModal = dynamic(() => import("@/components/modals/TeacherLoginModal").then((m) => m.TeacherLoginModal), { ssr: false });
 const StudentDashboardModal = dynamic(() => import("@/components/modals/StudentDashboardModal").then((m) => m.StudentDashboardModal), { ssr: false });
 const ExamDetailPopup = dynamic(() => import("@/components/modals/ExamDetailPopup").then((m) => m.ExamDetailPopup), { ssr: false });
 
@@ -58,7 +57,6 @@ export default function HomeClient({
   const [selectedEnrollCourse, setSelectedEnrollCourse] = useState<string | undefined>(undefined);
   const [isStudentAuthOpen, setIsStudentAuthOpen] = useState(false);
   const [isStudentPortalLoginOpen, setIsStudentPortalLoginOpen] = useState(false);
-  const [isTeacherLoginOpen, setIsTeacherLoginOpen] = useState(false);
   const [isStudentDashOpen, setIsStudentDashOpen] = useState(false);
   const [activePortalStudentId, setActivePortalStudentId] = useState("");
   const [selectedSubmissionForPopup, setSelectedSubmissionForPopup] = useState<Submission | null>(null);
@@ -385,7 +383,7 @@ export default function HomeClient({
         />
       </main>
 
-      <Footer onOpenTeacherLogin={() => setIsTeacherLoginOpen(true)} />
+      <Footer />
 
       {/* নতুন সংবাদ এলে একবার পপআপ (হোম পেজে বা হোমে ফিরে এলে) */}
       <NewNewsPopup initialNews={initialDailyNews} />
@@ -412,15 +410,6 @@ export default function HomeClient({
           onVerified={handleStudentVerified}
         />
       )}
-
-      <TeacherLoginModal
-        isOpen={isTeacherLoginOpen}
-        onClose={() => setIsTeacherLoginOpen(false)}
-        onLoginSuccess={(user) => {
-          sessionStorage.setItem("teacher_user", JSON.stringify(user));
-          router.push("/admin");
-        }}
-      />
 
       <StudentPortalLoginModal
         isOpen={isStudentPortalLoginOpen}

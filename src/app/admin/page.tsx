@@ -2,6 +2,7 @@
 
 import { CourseEditModal } from "@/components/admin/CourseEditModal";
 import { CourseDetailsModal } from "@/components/admin/CourseDetailsModal";
+import { AdminLogin } from "@/components/admin/AdminLogin";
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -70,6 +71,8 @@ export default function AdminPage() {
   });
   const [selectedExamKey, setSelectedExamKey] = useState("");
   const [teacherUser, setTeacherUser] = useState<{ email: string } | null>(null);
+  // অথেনটিকেশন গেট: যাচাই চলছে → লগইন ল্যান্ডিং → প্যানেল
+  const [authState, setAuthState] = useState<"checking" | "login" | "panel">("checking");
 
   // Sub-forms state
   const [newCourseName, setNewCourseName] = useState("");
@@ -132,10 +135,12 @@ export default function AdminPage() {
     const verified = await verifyTeacherSession(session?.access_token);
     if (!verified.ok || !verified.email) {
       sessionStorage.removeItem("teacher_user");
-      router.push("/");
+      // আগে হোমে পাঠানো হতো; এখন /admin-এই লগইন ল্যান্ডিং দেখাই
+      setAuthState("login");
       return;
     }
     setTeacherUser({ email: verified.email });
+    setAuthState("panel");
 
     if (initialLoad) {
       // Phase 1: Lite load — shows exam list instantly (no heavy JOIN)
@@ -155,7 +160,13 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  if (!config || !teacherUser) {
+  // লগইন ল্যান্ডিং — শিক্ষক নন বা সেশন নেই
+  if (authState === "login") {
+    return <AdminLogin />;
+  }
+
+  // যাচাই চলছে / ডেটা লোড হচ্ছে
+  if (authState === "checking" || !config || !teacherUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 font-bengali text-slate-500 gap-2">
         <Loader2 className="w-5 h-5 animate-spin" /> প্যানেল লোড হচ্ছে...
