@@ -11,10 +11,11 @@ import {
   BarChart3,
   AlertOctagon,
   Bookmark,
-  LogIn
+  LogIn,
+  LogOut
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { getLocalStudentUser, loginWithGoogle } from "@/lib/student-auth";
+import { getLocalStudentUser, loginWithGoogle, logoutStudentUser } from "@/lib/student-auth";
 import { WhatsAppJoinPopup } from "@/components/dashboard/WhatsAppJoinPopup";
 
 /**
@@ -77,6 +78,19 @@ export default function PortalPage() {
       await loginWithGoogle(undefined, "/portal");
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // স্টুডেন্ট পোর্টালে ঢুকলেই (overview পেজে) লগআউট দেখা যাবে
+  const handlePortalLogout = async () => {
+    if (confirm("আপনি কি স্টুডেন্ট পোর্টাল থেকে লগআউট করতে চান?")) {
+      try {
+        await logoutStudentUser();
+      } catch (err) {
+        console.error(err);
+      }
+      // লোকাল পরিচয় মুছে গেলে পেজ রিফ্রেশ → লগইন-গেট আবার দেখায়
+      window.location.href = "/portal";
     }
   };
 
@@ -145,9 +159,18 @@ export default function PortalPage() {
                   সেকশনে ট্যাপ করলে বিস্তারিত আলাদা পেজে খুলবে
                 </p>
               </div>
-              <span className="text-[11px] sm:text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200 px-3 py-1 rounded-full">
-                ৪টি সেকশন
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] sm:text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200 px-3 py-1 rounded-full">
+                  ৪টি সেকশন
+                </span>
+                <button
+                  type="button"
+                  onClick={handlePortalLogout}
+                  className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-full transition cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" /> লগআউট
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

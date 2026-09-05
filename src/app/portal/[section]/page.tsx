@@ -214,6 +214,9 @@ export default function PortalSectionPage() {
             wide
             isOpen
             initialTab={meta.tab}
+            // শুধু 'পরীক্ষার ফলাফল' (results) সেকশন-পেজে উপরের ৪টি সেকশন ট্যাব
+            // বাদ দিই — বাকি সেকশনগুলোতে আগের মতো ৪টি ট্যাব থেকে নেভিগেট করা যায়।
+            hideTabs={raw === "results"}
             studentId={activeStudentId}
             exams={config?.exams || {}}
             routineUrl={config?.driveRoutineUrl}

@@ -64,6 +64,10 @@ interface StudentDashboardModalProps {
   wide?: boolean;
   /** কোন ট্যাব সিলেক্ট করে খুলবে (ডিফল্ট: history)। */
   initialTab?: TabKey;
+  /** সত্য হলে উপরের ৪টি সেকশন ট্যাব (Navigation Tabs) দেখানো হবে না — শুধু
+      initialTab-এর নির্দিষ্ট সেকশনের কনটেন্ট দেখায়। /portal/results-এ ৪টি
+      সেকশন আবার না দেখানোর জন্য ব্যবহৃত হয়। */
+  hideTabs?: boolean;
   studentId: string;
   exams: Record<string, Exam>;
   config?: AppConfigData;
@@ -78,6 +82,7 @@ export const StudentDashboardModal: React.FC<StudentDashboardModalProps> = ({
   embedded = false,
   wide = false,
   initialTab,
+  hideTabs = false,
   studentId,
   exams,
   routineUrl = "https://drive.google.com",
@@ -389,7 +394,9 @@ export const StudentDashboardModal: React.FC<StudentDashboardModalProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs */}
+        {/* Navigation Tabs — portal সেকশন-পেজে hideTabs হলে ৪টি ট্যাব দেখাই না
+            (শুধু initialTab-এর নির্দিষ্ট সেকশনের কনটেন্ট দেখানো হয়) */}
+        {!hideTabs && (
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-2 flex-wrap">
           <button
             type="button"
@@ -443,6 +450,7 @@ export const StudentDashboardModal: React.FC<StudentDashboardModalProps> = ({
             <span>বুকমার্কসমূহ ({toBengaliDigits(bookmarks.length)})</span>
           </button>
         </div>
+        )}
 
         {/* Access denied banner (IDOR protection) */}
         {accessDenied && (
