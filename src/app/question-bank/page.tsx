@@ -51,6 +51,34 @@ interface TopicEntry {
 
 const optLabels = ["ক", "খ", "গ", "ঘ"];
 
+// টপিক-তালিকা লোকাল cache — আবার পেজ খুললে সাথে সাথে পুরনো তালিকা দেখায়,
+// পেছনে সার্ভার থেকে নতুন কাউন্ট আপডেট হয় (সংক্ষিপ্ত TTL, নিরাপদ)।
+const TOPICS_CACHE_PREFIX = "csp_qbank_topics_";
+const TOPICS_CACHE_TTL_MS = 90 * 1000; // ৯০ সেকেন্ড
+
+function readTopicsCache(uid: string): TopicEntry[] | null {
+  if (typeof window === "undefined" || !uid) return null;
+  try {
+    const raw = localStorage.getItem(TOPICS_CACHE_PREFIX + uid);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.list)) return null;
+    if (Date.now() - Number(parsed.ts || 0) > TOPICS_CACHE_TTL_MS) return null;
+    return parsed.list as TopicEntry[];
+  } catch {
+    return null;
+  }
+}
+
+function writeTopicsCache(uid: string, list: TopicEntry[]): void {
+  if (typeof window === "undefined" || !uid) return;
+  try {
+    localStorage.setItem(TOPICS_CACHE_PREFIX + uid, JSON.stringify({ list, ts: Date.now() }));
+  } catch {
+    // ignore (private mode) — শুধু গতি, মূল ফিচার নয়
+  }
+}
+
 // রিডিং-এ একবারে রেন্ডার হওয়া প্রশ্নের সংখ্যা (সব লোড হয়; বাকিগুলো "আরও দেখুন"-এ আসে)
 const READ_CHUNK = 200;
 
@@ -118,10 +146,23 @@ export default function QuestionBankPage() {
         }
         setAccessId(effId);
         setAccessEmail(effEmail || "");
+
+        // দ্রুত খোলা: পরিচয় ঠিক হলেই লোকাল cache-এর তালিকা সাথে সাথে দেখাই —
+        // তারপর পেছনে সার্ভার থেকে নতুন কাউন্ট এনে cache হালনাগাদ হয়।
+        const cached = readTopicsCache(effId || effEmail);
+        if (cached && cached.length > 0) {
+          setEntries(cached);
+        }
+
         const t = await getPracticeTopics(effId, effEmail);
-        setEntries(
-          (t || []).map((x: { name: string; count: number }) => ({ name: x.name, count: x.count }))
-        );
+        const mapped = (t || []).map((x: { name: string; count: number }) => ({
+          name: x.name,
+          count: x.count
+        }));
+        setEntries(mapped);
+        if (mapped.length > 0) {
+          writeTopicsCache(effId || effEmail, mapped);
+        }
       } catch {
         setLoadError("সার্ভার থেকে তথ্য লোড করা যায়নি। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
       }
@@ -300,60 +341,71 @@ export default function QuestionBankPage() {
     </div>
   );
 
-  // টপিক-রো (রিকার্সিভ) — চেভরনে এক্সপ্যান্ড, রো-ক্লিকে পড়া শুরু
+  // টপিক-রো (রিকার্সিভ) — চেভরনে এক্সপ্যান্ড, পুরো রো বড় "পড়ুন" বাটন
   const renderNodeRows = (nodes: HubNode[]) => {
     return nodes.map((node) => {
       const hasChildren = node.children.length > 0;
       const isExpanded = expandedPaths[node.fullPath] ?? false;
+      const nodeName = node.name.trim();
+      const accent = nodeName.charAt(0);
       return (
         <div key={node.fullPath}>
-          <div className="flex items-center gap-1.5 p-2 rounded-xl border transition cursor-pointer bg-white border-slate-300 text-black hover:border-indigo-400 hover:bg-indigo-50/40">
-            {hasChildren ? (
+          <div className="flex items-stretch gap-1.5 p-1.5 sm:p-2 rounded-2xl border transition bg-white border-slate-200 hover:border-indigo-400 hover:shadow-sm">
+            {/* শুধু নেস্টেড টপিকের expand/colapse (পড়ার জন্য নয়) */}
+            {hasChildren && (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleExpand(node.fullPath);
                 }}
-                className="p-0.5 rounded hover:bg-black/10 transition cursor-pointer shrink-0 text-slate-400"
-                aria-label="খুলুন/বন্ধ করুন"
+                className="shrink-0 w-9 sm:w-10 self-stretch rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition cursor-pointer"
+                aria-label="সাব-টপিক খুলুন/বন্ধ করুন"
+                title={isExpanded ? "সাব-টপিক বন্ধ করুন" : "সাব-টপিক খুলুন"}
               >
-                {isExpanded ? (
-                  <ChevronRight className="w-3.5 h-3.5 rotate-90" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5" />
-                )}
+                <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
               </button>
-            ) : (
-              <span className="w-1.5 h-1.5 rounded-full shrink-0 ml-1 bg-indigo-500" />
             )}
 
+            {/* পুরো রো = বড় পড়ুন বাটন */}
             <button
               type="button"
               onClick={() => openTopic(node.fullPath, node.fullPath)}
-              className="flex items-center gap-1.5 flex-1 min-w-0 text-left font-bold truncate cursor-pointer"
-              title={node.fullPath}
+              className="flex-1 min-w-0 rounded-xl px-2.5 py-2 sm:px-3 flex items-center gap-2.5 text-left cursor-pointer group transition"
+              title={`${node.fullPath} — পড়ুন`}
             >
               {hasChildren ? (
-                <Layers className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                <span className="shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 text-white flex items-center justify-center text-sm font-black shadow-sm">
+                  {accent}
+                </span>
               ) : (
-                <BookOpen className="w-3.5 h-3.5 shrink-0 text-indigo-600" />
+                <span className="shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white flex items-center justify-center text-sm font-black shadow-sm">
+                  {accent}
+                </span>
               )}
-              <span className="truncate">{node.name}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-black text-slate-900 text-sm truncate group-hover:text-indigo-700 transition">
+                  {node.name}
+                </span>
+                {hasChildren && (
+                  <span className="block text-[10px] text-slate-400 font-semibold">
+                    {isExpanded ? "সাব-টপিক খোলা আছে" : "গ্রুপ — ভেতরে সাব-টপিক আছে"}
+                  </span>
+                )}
+              </span>
               {node.count > 0 && (
-                <span className="text-xs px-1.5 py-0.5 rounded-full shrink-0 bg-slate-100 text-slate-600">
+                <span className="shrink-0 text-[11px] font-black bg-slate-100 text-slate-600 px-2 py-1 rounded-full">
                   {toBengaliDigits(node.count)}টি
                 </span>
               )}
+              <span className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 text-white text-[11px] sm:text-xs font-black px-3 py-2 shadow-sm group-hover:bg-indigo-700 transition">
+                পড়ুন <ChevronRight className="w-3.5 h-3.5" />
+              </span>
             </button>
-
-            <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg">
-              <BookOpen className="w-3 h-3" /> পড়ুন
-            </span>
           </div>
 
           {hasChildren && isExpanded && (
-            <div className="ml-3 sm:ml-4 pl-2.5 border-l-2 border-indigo-100 space-y-1 mt-1">
+            <div className="ml-4 sm:ml-6 pl-2 sm:pl-3 border-l-2 border-indigo-100 space-y-1 mt-1.5">
               {renderNodeRows(node.children)}
             </div>
           )}
@@ -593,25 +645,34 @@ export default function QuestionBankPage() {
                       </span>
                     </div>
 
-                    <div className="space-y-1 max-h-[60vh] overflow-y-auto pr-1">
-                      {/* পুরো গ্রুপ রো */}
-                      <div className="flex items-center gap-1.5 p-2 rounded-xl border transition cursor-pointer bg-gradient-to-r from-indigo-50 to-white border-slate-300 text-black hover:border-indigo-400">
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0 ml-1 bg-indigo-500" />
-                        <button
-                          type="button"
-                          onClick={() => openTopic(activeGroupNode.fullPath, activeGroupNode.fullPath)}
-                          className="flex items-center gap-1.5 flex-1 min-w-0 text-left font-bold truncate cursor-pointer"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                          <span className="truncate">পুরো {activeGroupNode.name} গ্রুপ পড়ুন (মিক্সড)</span>
-                          <span className="text-xs px-1.5 py-0.5 rounded-full shrink-0 bg-slate-100 text-slate-600">
+                    <div className="space-y-1.5 max-h-[60vh] overflow-y-auto pr-1">
+                      {/* পুরো গ্রুপ পড়ুন — বড় পরিষ্কার বাটন */}
+                      <button
+                        type="button"
+                        onClick={() => openTopic(activeGroupNode.fullPath, activeGroupNode.fullPath)}
+                        className="w-full flex items-center gap-2.5 p-2.5 sm:p-3 rounded-2xl border transition cursor-pointer bg-gradient-to-r from-indigo-600 to-violet-600 border-indigo-600 text-white hover:from-indigo-700 hover:to-violet-700 hover:shadow-md group"
+                        title={`পুরো ${activeGroupNode.name} গ্রুপ পড়ুন`}
+                      >
+                        <span className="shrink-0 w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center text-sm font-black">
+                          <Sparkles className="w-4 h-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-black text-sm truncate">
+                            পুরো {activeGroupNode.name} গ্রুপ পড়ুন (মিক্সড)
+                          </span>
+                          <span className="block text-[10px] text-indigo-100 font-semibold">
+                            সাব-টপিক ভেদে না গিয়ে সব প্রশ্ন একসাথে পড়ুন
+                          </span>
+                        </span>
+                        {activeGroupNode.count > 0 && (
+                          <span className="shrink-0 text-[11px] font-black bg-white/20 text-white px-2.5 py-1 rounded-full">
                             {toBengaliDigits(activeGroupNode.count)}টি
                           </span>
-                        </button>
-                        <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg">
-                          <BookOpen className="w-3 h-3" /> পড়ুন
+                        )}
+                        <span className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-white text-indigo-700 text-[11px] sm:text-xs font-black px-3 py-2 shadow-sm">
+                          পড়ুন <ChevronRight className="w-3.5 h-3.5" />
                         </span>
-                      </div>
+                      </button>
 
                       {renderNodeRows(activeGroupNode.children)}
                     </div>
