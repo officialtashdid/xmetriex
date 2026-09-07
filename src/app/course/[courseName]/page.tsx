@@ -82,8 +82,16 @@ export default function CourseStudyPage() {
   const checkAccess = useCallback(async () => {
     if (!courseName) return;
     setChecking(true);
+    const t0 = typeof window !== "undefined" ? performance.now() : 0;
     try {
       const access = await getCourseVideosForStudent(courseName, getLocalIdentity());
+      try {
+        if (typeof window !== "undefined") {
+          console.log(`[course-page] video-access: ${Math.round(performance.now() - t0)}ms (allowed=${access.allowed})`);
+        }
+      } catch {
+        /* ignore */
+      }
       setVideoResult(access);
       if (access.allowed && access.name) {
         const id = getLocalIdentity();
@@ -98,40 +106,60 @@ export default function CourseStudyPage() {
     }
   }, [courseName]);
 
+  // ডায়াগনস্টিক: প্রতিটি সার্ভার কল কতক্ষণ নিচ্ছে — ব্রাউজার কনসোলে দেখায়
+  const logLoadMs = (label: string, startMs: number) => {
+    try {
+      if (typeof window !== "undefined") {
+        console.log(`[course-page] ${label}: ${Math.round(performance.now() - startMs)}ms`);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
   useEffect(() => {
     if (!courseName) return;
     setDetailsOpen(true);
     setLoadError("");
+
+    // সব ডেটা কল সমান্তরাল — কোনোটা আরেকটার পেছনে অপেক্ষা করে না।
+    // WhatsApp সার্ভার-অ্যাকশন নিজেই এনরোলমেন্ট যাচাই করে (এনরোল্ড না হলে খালি
+    // ফেরত), তাই এটাও আগে থেকেই ভিডিও-অ্যাক্সেসের অপেক্ষা না করে fetch করা যায়।
+    const tConfig = performance.now();
     fetchAppConfigLite()
-      .then(setConfig)
+      .then((c) => {
+        logLoadMs("config", tConfig);
+        setConfig(c);
+      })
       .catch(() => {
         console.error("App config fetch failed on course page.");
         setLoadError("সার্ভার থেকে তথ্য লোড করা যায়নি। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
       });
-    // কোর্সের বিস্তারিত (শিক্ষক প্যানেল থেকে লেখা) — কোর্স পেজে দেখায়
-    fetchCourseDetails(courseName)
-      .then(setCourseDetails)
-      .catch(() => {});
-    checkAccess();
-  }, [courseName, checkAccess, loadAttempt]);
 
-  // এনরোল্ড স্টুডেন্ট পেলে কোর্সের WhatsApp গ্রুপ লিংক আনা হয় — শুধু তখনই দেখাবে
-  useEffect(() => {
-    if (!courseName || videoResult?.allowed !== true) {
-      setWaLink("");
-      return;
-    }
-    let cancelled = false;
-    getCourseWhatsAppForStudent(courseName, getLocalIdentity())
-      .then((l) => {
-        if (!cancelled) setWaLink(l);
+    // কোর্সের বিস্তারিত (শিক্ষক প্যানেল থেকে লেখা) — কোর্স পেজে দেখায়
+    const tDetails = performance.now();
+    fetchCourseDetails(courseName)
+      .then((d) => {
+        logLoadMs("course-details", tDetails);
+        setCourseDetails(d);
       })
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseName, videoResult?.allowed]);
+
+    // WhatsApp লিংক — শুধু লোকাল পরিচয় থাকলেই fetch (অননুমোদিত/অ্যানন → সার্ভার খালি দেয়)
+    const identity = getLocalIdentity();
+    if (identity && (identity.id || identity.email)) {
+      const tWa = performance.now();
+      getCourseWhatsAppForStudent(courseName, identity)
+        .then((l) => {
+          logLoadMs("whatsapp-link", tWa);
+          setWaLink(l);
+        })
+        .catch(() => {});
+    }
+
+    // ভিডিও + এনরোলমেন্ট যাচাই (আলাদা async) — সাথে সাথে শুরু হয়
+    checkAccess();
+  }, [courseName, checkAccess, loadAttempt]);
 
   const isUnlocked = videoResult?.allowed === true;
   const videos = videoResult?.videos || [];
