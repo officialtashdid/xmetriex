@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { Header } from "@/components/shared/Header";
 import { Footer } from "@/components/shared/Footer";
 import { AdminNav, AdminTabType } from "@/components/admin/AdminNav";
+import { LiveExamReport } from "@/components/admin/LiveExamReport";
 import dynamic from "next/dynamic";
 
 const LoadingFallback = () => (
@@ -469,6 +470,8 @@ export default function AdminPage() {
                   </p>
                 </div>
               </div>
+
+              <LiveExamReport />
 
               <button
                 onClick={handleLogout}
