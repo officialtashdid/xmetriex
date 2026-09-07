@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Clock } from "lucide-react";
+import { Timer } from "lucide-react";
 import { getTrueNowMs } from "@/lib/bangladesh-time";
 import { toBengaliDigits } from "@/lib/utils";
 
@@ -10,6 +10,8 @@ interface ExamTimerProps {
   onTimeExpire: () => void;
   onTimeUpdate?: (secondsLeft: number) => void;
 }
+
+const LOW_SECONDS = 60;
 
 export const ExamTimer: React.FC<ExamTimerProps> = ({
   initialSeconds,
@@ -53,11 +55,18 @@ export const ExamTimer: React.FC<ExamTimerProps> = ({
 
   const m = Math.max(0, Math.floor(secondsRemaining / 60));
   const s = Math.max(0, secondsRemaining % 60);
+  const isLow = secondsRemaining <= LOW_SECONDS;
   const timeFormatted = `${toBengaliDigits(m.toString().padStart(2, "0"))}:${toBengaliDigits(s.toString().padStart(2, "0"))}`;
 
   return (
-    <div className="flex items-center gap-2 bg-rose-50/80 text-rose-700 px-3 py-1.5 rounded-xl font-mono font-bold text-base sm:text-lg border border-rose-100 shadow-sm">
-      <Clock className="w-5 h-5 text-rose-600 animate-pulse" />
+    <div
+      className={`flex items-center gap-2 rounded-2xl px-3.5 py-2 font-mono font-black text-base sm:text-xl transition-colors ${
+        isLow
+          ? "bg-rose-600 text-white shadow-md shadow-rose-600/30 animate-pulse"
+          : "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-600/25"
+      }`}
+    >
+      <Timer className={`w-5 h-5 ${isLow ? "" : "text-indigo-200"}`} />
       <span>{timeFormatted}</span>
     </div>
   );

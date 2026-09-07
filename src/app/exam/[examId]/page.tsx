@@ -5,13 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import { Header } from "@/components/shared/Header";
 import { Footer } from "@/components/shared/Footer";
 import { ExamTimer } from "@/components/exam/ExamTimer";
+import { ExamGuard } from "@/components/exam/ExamGuard";
 import { QuestionList } from "@/components/exam/QuestionList";
 import { fetchExamWithQuestions, fetchExamForDemo } from "@/actions/admin-actions";
 import { submitExamAnswers } from "@/actions/exam-actions";
 import { getLocalStudentUser } from "@/lib/student-auth";
 import { parseBangladeshDateTime, getTrueNowMs, isExamCurrentlyLive, syncBangladeshNetworkTime } from "@/lib/bangladesh-time";
 import { Exam } from "@/types/exam";
-import { CheckCheck, Loader2, X, AlertCircle, CheckCircle2, Send, RotateCcw, LogIn } from "lucide-react";
+import { CheckCheck, Loader2, X, AlertCircle, CheckCircle2, Send, RotateCcw, LogIn, Layers, ChevronDown } from "lucide-react";
 import { toBengaliDigits } from "@/lib/utils";
 
 export default function ExamPage() {
@@ -30,6 +31,8 @@ export default function ExamPage() {
   const [demoResult, setDemoResult] = useState<{ correct: number; incorrect: number; skipped: number; total: number } | null>(null);
   // প্রশ্ন লোড হলেও টাইমার চালু হয় না — "পরীক্ষা শুরু করুন" ট্যাপে চালু হয়
   const [started, setStarted] = useState(false);
+  // প্রশ্ন-প্যালেট (সব প্রশ্নের নম্বর) — মোবাইলে ভাঁজ করা থাকে
+  const [paletteOpen, setPaletteOpen] = useState(true);
   // লগইন-ছাড়া লিংকে এলে — এই পেজেই লগইন প্রম্পট (হোমে পাঠানো হয় না)
   const [loginPrompt, setLoginPrompt] = useState(false);
 
@@ -403,59 +406,82 @@ export default function ExamPage() {
   if (!started || secondsRemaining === null) {
     const totalQ = exam.questions?.length || 0;
     return (
-      <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-950 via-indigo-900 to-violet-950 p-4 font-bengali">
-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 sm:p-8 space-y-5 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-9 h-9" />
-          </div>
-          <div className="space-y-1.5">
-            <h1 className="text-lg sm:text-xl font-black text-slate-900 leading-tight">{exam.title}</h1>
-            <p className="text-[11px] text-slate-500 font-bold">
-              {exam.course} | {exam.subject} | {toBengaliDigits(totalQ)} প্রশ্ন | {toBengaliDigits(exam.timerMinutes)} মিনিট
-              {exam.isFree ? " | ফ্রি" : ""}
-            </p>
-          </div>
+      <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-950 via-indigo-900 to-violet-950 p-4 font-bengali relative overflow-hidden">
+        {/* অলংকার */}
+        <div className="pointer-events-none absolute -top-24 -right-24 w-72 h-72 bg-amber-400/20 rounded-full blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-24 w-72 h-72 bg-indigo-400/20 rounded-full blur-3xl" />
 
-          {demoMode && (
-            <div className="bg-violet-50 border border-violet-200 text-violet-900 text-[11px] font-bold rounded-xl px-3 py-2.5">
-              🧪 ডেমো মোড — শিক্ষক টেস্ট: ফলাফল সেভ হবে না
-            </div>
-          )}
-
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 text-left space-y-2">
-            {[
-              "প্রশ্ন লোড সম্পন্ন হয়েছে ✓",
-              "নিচের বাটনে ট্যাপ করলেই টাইমার চালু হবে",
-              "প্রস্তুত হয়ে নিন — সময় হলে আর পেছানো যাবে না"
-            ].map((line, i) => (
-              <div key={i} className="flex items-center gap-2 text-[11px] text-slate-700 font-bold">
-                <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[9px] flex items-center justify-center shrink-0">
-                  {toBengaliDigits(i + 1)}
-                </span>
-                {line}
+        <div className="relative w-full max-w-md">
+          {/* কার্ড */}
+          <div className="bg-white/95 backdrop-blur rounded-3xl shadow-2xl shadow-black/30 overflow-hidden">
+            <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-5 text-center relative">
+              <div className="pointer-events-none absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top_right,#fff,transparent_60%)]" />
+              <div className="relative inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/15 border border-white/30 shadow-inner">
+                <CheckCircle2 className="w-9 h-9 text-amber-300" />
               </div>
-            ))}
-          </div>
-
-          {totalQ === 0 ? (
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold rounded-xl px-3 py-2.5">
-              ⚠️ এই পরীক্ষায় এখনো কোনো প্রশ্ন যোগ করা হয়নি।
+              <h1 className="mt-3 text-xl sm:text-2xl font-black text-white leading-tight">{exam.title}</h1>
+              <p className="text-[11px] sm:text-xs text-indigo-100 font-bold mt-1">
+                {exam.course} · {exam.subject}
+              </p>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={beginExam}
-              disabled={isSubmitting}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl text-sm transition shadow-lg shadow-emerald-600/25 cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2"
-            >
-              <Send className="w-4 h-4" /> পরীক্ষা শুরু করুন
-            </button>
-          )}
 
-          <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
-            🔒 প্রশ্ন নিরাপদে লোড হয়েছে — ট্যাপের পরই টাইমার চলবে
-            {!demoMode && isExamCurrentlyLive(exam) && exam.endTime ? " (লাইভ শেষ হওয়া পর্যন্ত সময় সীমিত)" : ""}
-          </p>
+            <div className="p-5 sm:p-6 space-y-4">
+              {/* মেট্রিক্স */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { l: "প্রশ্ন", v: toBengaliDigits(totalQ), c: "text-indigo-700" },
+                  { l: "সময়", v: `${toBengaliDigits(exam.timerMinutes)} মি`, c: "text-amber-600" },
+                  { l: "ধরন", v: exam.isFree ? "ফ্রি" : "প্রিমিয়াম", c: "text-emerald-600" }
+                ].map((s) => (
+                  <div key={s.l} className="bg-slate-50 border border-slate-200 rounded-2xl p-2.5 text-center">
+                    <div className={`text-base font-black ${s.c}`}>{s.v}</div>
+                    <div className="text-[10px] text-slate-400 font-bold mt-0.5">{s.l}</div>
+                  </div>
+                ))}
+              </div>
+
+              {demoMode && (
+                <div className="bg-violet-50 border border-violet-200 text-violet-900 text-[11px] font-bold rounded-xl px-3 py-2.5 text-center">
+                  🧪 ডেমো মোড — শিক্ষক টেস্ট: ফলাফল সেভ হবে না
+                </div>
+              )}
+
+              <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-3.5 space-y-2">
+                {[
+                  "প্রশ্ন লোড সম্পন্ন হয়েছে",
+                  "শুরুর বাটনে ট্যাপ করলেই টাইমার চালু হবে",
+                  "সময় শেষ হলে উত্তরপত্র স্বয়ংক্রিয় জমা হবে"
+                ].map((line, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[11px] text-slate-700 font-bold">
+                    <span className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-white text-[9px] flex items-center justify-center shrink-0">
+                      {toBengaliDigits(i + 1)}
+                    </span>
+                    {line}
+                  </div>
+                ))}
+              </div>
+
+              {totalQ === 0 ? (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold rounded-xl px-3 py-2.5 text-center">
+                  ⚠️ এই পরীক্ষায় এখনো কোনো প্রশ্ন যোগ করা হয়নি।
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={beginExam}
+                  disabled={isSubmitting}
+                  className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black py-4 rounded-2xl text-sm transition-all shadow-lg shadow-indigo-600/30 cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 active:scale-[0.99]"
+                >
+                  <Send className="w-4 h-4" /> পরীক্ষা শুরু করুন
+                </button>
+              )}
+
+              <p className="text-[10px] text-slate-400 font-bold leading-relaxed text-center">
+                🔒 প্রশ্ন নিরাপদে লোড হয়েছে — ট্যাপের পরই টাইমার চলবে
+                {!demoMode && isExamCurrentlyLive(exam) && exam.endTime ? " (লাইভ শেষ হওয়া পর্যন্ত সময় সীমিত)" : ""}
+              </p>
+            </div>
+          </div>
         </div>
       </main>
     );
@@ -532,130 +558,230 @@ export default function ExamPage() {
 
   return (
     <>
-      <main className="flex-grow max-w-5xl w-full mx-auto p-3 sm:p-5 md:p-6 font-bengali">
-        {demoMode && (
-          <div className="mb-3 rounded-2xl bg-violet-100 border border-violet-300 text-violet-900 text-xs sm:text-sm font-black px-4 py-2.5 flex items-center gap-2">
-            🧪 ডেমো মোড — শিক্ষক টেস্ট: ফলাফল সেভ হবে না, লিডারবোর্ডে প্রভাব নেই
-          </div>
-        )}
-        <div className="bg-white rounded-3xl p-4 sm:p-8 shadow-md border border-slate-200 space-y-6">
-          {/* স্টিকি এক্সাম হেডার — মোবাইল: বামে পরীক্ষার নাম · মাঝে সাবমিট · ডানে সময় */}
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sticky top-0 bg-white/95 backdrop-blur-sm z-30 border-b border-slate-100 pb-3 pt-1">
-            {/* Left: exam title (truncated, এক লাইনে) */}
-            <div className="text-left min-w-0 flex items-center overflow-hidden">
-              <span className="inline-block text-[13px] sm:text-sm md:text-base font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-full truncate max-w-full leading-tight">
-                {exam.title}
+      {/* অ্যাম্বিয়েন্ট গ্রেডিয়েন্ট ব্যাকড্রপ */}
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-b from-indigo-50 via-white to-violet-50" />
+
+      {/* এক্সাম-সুরক্ষা: tab-ছাড়া সতর্ক/অটো-সাবমিট + কপি/প্রিন্ট-ব্লক (ডেমোতে নয়) */}
+      {!demoMode && started && (
+        <ExamGuard
+          active={started}
+          maxLeaves={3}
+          onAutoSubmit={() => {
+            doSubmit(secondsRemaining ?? 0);
+          }}
+        />
+      )}
+
+      {/* ===== স্টিকি হেডার: প্রগ্রেস + টাইমার + সাবমিট ===== */}
+      <header className="sticky top-0 z-40 bg-gradient-to-r from-slate-900 via-indigo-950 to-violet-950 text-white shadow-lg shadow-indigo-950/20 border-b border-white/10">
+        <div className="max-w-6xl mx-auto px-3 sm:px-5 py-2.5 sm:py-3 flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <h1 className="truncate font-black text-sm sm:text-base text-white/95 leading-tight">{exam.title}</h1>
+            </div>
+            {/* প্রগ্রেস বার */}
+            <div className="mt-1.5 flex items-center gap-2">
+              <div className="flex-1 h-1.5 rounded-full bg-white/15 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-300 transition-all duration-300"
+                  style={{ width: `${totalQuestions ? (answeredCount / totalQuestions) * 100 : 0}%` }}
+                />
+              </div>
+              <span className="text-[10px] sm:text-[11px] font-black text-white/80 whitespace-nowrap">
+                {toBengaliDigits(answeredCount)}/{toBengaliDigits(totalQuestions)}
               </span>
             </div>
-
-            {/* Center: Submit */}
-            <div className="text-center shrink-0">
-              <button
-                onClick={handleManualSubmit}
-                disabled={isSubmitting}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] sm:text-sm font-bold px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl transition-all shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
-              >
-                {isSubmitting ? "জমা হচ্ছে..." : "জমা দিন"}
-              </button>
-            </div>
-
-            {/* Right: Timer */}
-            <div className="flex justify-end min-w-0">
-              <ExamTimer
-                initialSeconds={secondsRemaining}
-                onTimeExpire={handleAutoSubmit}
-                onTimeUpdate={(s) => setSecondsRemaining(s)}
-              />
-            </div>
           </div>
 
-          <QuestionList
-            questions={exam.questions || []}
-            studentAnswers={studentAnswers}
-            onSelectOption={handleSelectOption}
-          />
-
-          <div className="pt-4 border-t border-slate-200 flex justify-end">
+          <div className="flex items-center gap-2 shrink-0">
+            <ExamTimer
+              initialSeconds={secondsRemaining}
+              onTimeExpire={handleAutoSubmit}
+              onTimeUpdate={(s) => setSecondsRemaining(s)}
+            />
             <button
               onClick={handleManualSubmit}
               disabled={isSubmitting}
-              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-3.5 rounded-xl text-sm transition shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="hidden sm:inline-flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-black px-4 py-2.5 rounded-2xl transition-all shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
             >
-              <CheckCheck className="w-5 h-5" />
-              {isSubmitting ? "জমা হচ্ছে..." : "পরীক্ষা জমা দিন (Submit)"}
+              <Send className="w-4 h-4" /> জমা দিন
             </button>
           </div>
+        </div>
+
+        {/* মোবাইল জমা-বাটন */}
+        <div className="sm:hidden px-3 pb-2 flex gap-2">
+          <button
+            onClick={handleManualSubmit}
+            disabled={isSubmitting}
+            className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-black py-2.5 rounded-xl transition cursor-pointer disabled:opacity-50"
+          >
+            <Send className="w-4 h-4" /> {isSubmitting ? "জমা হচ্ছে..." : "পরীক্ষা জমা দিন"}
+          </button>
+        </div>
+      </header>
+
+      {/* ===== মূল প্রশ্ন-এলাকা: ডেস্কটপে ২ কলাম ===== */}
+      <main className="flex-grow max-w-6xl w-full mx-auto p-3 sm:p-5 md:p-6 font-bengali">
+        {demoMode && (
+          <div className="mb-4 rounded-2xl bg-violet-100 border border-violet-300 text-violet-900 text-xs sm:text-sm font-black px-4 py-2.5 flex items-center gap-2">
+            🧪 ডেমো মোড — শিক্ষক টেস্ট: ফলাফল সেভ হবে না, লিডারবোর্ডে প্রভাব নেই
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_240px] gap-5 items-start">
+          {/* বাম: প্রশ্ন তালিকা */}
+          <div className="min-w-0 space-y-4">
+            <QuestionList
+              questions={exam.questions || []}
+              studentAnswers={studentAnswers}
+              onSelectOption={handleSelectOption}
+            />
+
+            <div className="flex justify-end pt-1">
+              <button
+                onClick={handleManualSubmit}
+                disabled={isSubmitting}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black px-8 py-3.5 rounded-2xl text-sm transition shadow-lg shadow-indigo-600/25 cursor-pointer disabled:opacity-50"
+              >
+                <CheckCheck className="w-5 h-5" />
+                {isSubmitting ? "জমা হচ্ছে..." : "পরীক্ষা জমা দিন (Submit)"}
+              </button>
+            </div>
+          </div>
+
+          {/* ডান: প্রশ্ন-প্যালেট (স্টিকি) */}
+          <aside className="lg:sticky lg:top-24 rounded-3xl bg-white border border-slate-200 shadow-sm overflow-hidden font-bengali">
+            <button
+              type="button"
+              onClick={() => setPaletteOpen((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white cursor-pointer"
+            >
+              <span className="flex items-center gap-2 text-sm font-black">
+                <Layers className="w-4 h-4" /> প্রশ্নপত্র
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${paletteOpen ? "" : "rotate-180"}`} />
+            </button>
+
+            {paletteOpen && (
+              <div className="p-3.5 space-y-3">
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-600">
+                    <span className="w-3 h-3 rounded-md bg-gradient-to-br from-indigo-500 to-violet-600 inline-block" /> উত্তর
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400">
+                    <span className="w-3 h-3 rounded-md border-2 border-slate-300 bg-white inline-block" /> বাকি
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-5 gap-1.5">
+                  {Array.from({ length: totalQuestions }).map((_, i) => {
+                    const done = studentAnswers[i] !== null;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          document.getElementById(`exam-q-${i}`)?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start"
+                          });
+                        }}
+                        className={`aspect-square rounded-xl text-xs font-black transition flex items-center justify-center cursor-pointer ${
+                          done
+                            ? "bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-sm hover:brightness-110"
+                            : "bg-slate-50 text-slate-500 border border-slate-200 hover:border-indigo-300 hover:text-indigo-700"
+                        }`}
+                        title={`${toBengaliDigits(i + 1)} নং প্রশ্ন`}
+                      >
+                        {toBengaliDigits(i + 1)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </aside>
         </div>
       </main>
 
       {/* Beautiful & Simple Submit Confirmation Popup */}
       {isConfirmModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 font-bengali animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 font-bengali animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-100 relative">
-            <button
-              onClick={() => setIsConfirmModalOpen(false)}
-              className="absolute top-3.5 right-3.5 z-20 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="p-6 text-center space-y-4">
-              <div
-                className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-inner ${
-                  unansweredCount > 0 ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
-                }`}
+            {/* gradient হেডার */}
+            <div className="relative bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-5">
+              <div className="pointer-events-none absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top_right,#fff,transparent_60%)]" />
+              <button
+                onClick={() => setIsConfirmModalOpen(false)}
+                className="absolute top-3.5 right-3.5 z-20 w-8 h-8 rounded-full bg-white/20 hover:bg-white/35 text-white flex items-center justify-center transition cursor-pointer"
               >
-                {unansweredCount > 0 ? (
-                  <AlertCircle className="w-7 h-7" />
-                ) : (
-                  <CheckCircle2 className="w-7 h-7" />
-                )}
-              </div>
-
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">পরীক্ষা জমা দিতে চান?</h3>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  {unansweredCount > 0
-                    ? `আপনার এখনও ${toBengaliDigits(unansweredCount)} টি প্রশ্নের উত্তর দেওয়া বাকি আছে।`
-                    : "আপনি সকল প্রশ্নের উত্তর দিয়েছেন।"}
-                </p>
-              </div>
-
-              {/* Status Summary Pills */}
-              <div className="grid grid-cols-3 gap-2 py-1">
-                <div className="bg-slate-50 border border-slate-100 rounded-xl p-2 text-center">
-                  <span className="text-xs text-slate-500 block">মোট প্রশ্ন</span>
-                  <span className="text-sm font-bold text-slate-800">
-                    {toBengaliDigits(totalQuestions)}
-                  </span>
-                </div>
-                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-2 text-center">
-                  <span className="text-xs text-emerald-700 block">উত্তর দেওয়া</span>
-                  <span className="text-sm font-bold text-emerald-700">
-                    {toBengaliDigits(answeredCount)}
-                  </span>
-                </div>
+                <X className="w-4 h-4" />
+              </button>
+              <div className="relative flex items-center gap-3">
                 <div
-                  className={`rounded-xl p-2 text-center border ${
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
                     unansweredCount > 0
-                      ? "bg-amber-50 border-amber-200 text-amber-800"
-                      : "bg-slate-50 border-slate-100 text-slate-400"
+                      ? "bg-amber-400/90 text-amber-950"
+                      : "bg-emerald-400 text-emerald-950"
                   }`}
                 >
-                  <span className="text-xs block">বাকি আছে</span>
-                  <span className="text-sm font-bold">
+                  {unansweredCount > 0 ? (
+                    <AlertCircle className="w-6 h-6" />
+                  ) : (
+                    <CheckCircle2 className="w-6 h-6" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-black text-white leading-tight">পরীক্ষা জমা দিতে চান?</h3>
+                  <p className="text-xs text-indigo-100 font-bold mt-0.5">
+                    {unansweredCount > 0
+                      ? `আপনার এখনও ${toBengaliDigits(unansweredCount)} টি প্রশ্নের উত্তর দেওয়া বাকি আছে`
+                      : "আপনি সকল প্রশ্নের উত্তর দিয়েছেন"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-4">
+              {/* Status Summary */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 text-center">
+                  <span className="text-xs text-slate-500 block">মোট প্রশ্ন</span>
+                  <span className="text-lg font-black text-slate-800">{toBengaliDigits(totalQuestions)}</span>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 text-center">
+                  <span className="text-xs text-emerald-700 block">উত্তর দেওয়া</span>
+                  <span className="text-lg font-black text-emerald-700">{toBengaliDigits(answeredCount)}</span>
+                </div>
+                <div
+                  className={`rounded-2xl p-3 text-center border ${
+                    unansweredCount > 0
+                      ? "bg-amber-50 border-amber-200"
+                      : "bg-slate-50 border-slate-100"
+                  }`}
+                >
+                  <span className={`text-xs block ${unansweredCount > 0 ? "text-amber-700" : "text-slate-400"}`}>বাকি আছে</span>
+                  <span
+                    className={`text-lg font-black ${unansweredCount > 0 ? "text-amber-700" : "text-slate-400"}`}
+                  >
                     {toBengaliDigits(unansweredCount)}
                   </span>
                 </div>
               </div>
 
+              <p className="text-[11px] text-slate-500 font-medium text-center leading-relaxed">
+                জমা দিলে আর উত্তর পরিবর্তন করা যাবে না। নিশ্চিত হলে জমা দিন।
+              </p>
+
               {/* Actions */}
-              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+              <div className="flex flex-col sm:flex-row gap-2 pt-1">
                 <button
                   type="button"
                   onClick={handleConfirmSubmit}
                   disabled={isSubmitting}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/25 cursor-pointer disabled:opacity-50 active:scale-[0.99]"
+                  className="flex-1 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black py-3 rounded-2xl transition text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/25 cursor-pointer disabled:opacity-50 active:scale-[0.99]"
                 >
                   <Send className="w-4 h-4" />
                   {isSubmitting ? "জমা হচ্ছে..." : "হ্যাঁ, জমা দিন"}
@@ -663,9 +789,9 @@ export default function ExamPage() {
                 <button
                   type="button"
                   onClick={() => setIsConfirmModalOpen(false)}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 px-4 rounded-xl transition text-xs sm:text-sm cursor-pointer"
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 px-4 rounded-2xl transition text-xs sm:text-sm cursor-pointer"
                 >
-                  পরীক্ষায় ফিরে যান
+                  পরীক্ষায় ফিরে যান
                 </button>
               </div>
             </div>
