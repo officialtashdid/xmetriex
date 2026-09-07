@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { requireTeacher, getTeacherUser } from "@/lib/teacher-auth";
 import { AppConfigData, Exam, QuestionItem, QuestionSolution, TopicQuestion, ArchivedQuestion } from "@/types/exam";
@@ -48,6 +49,25 @@ function invalidateConfigCache() {
   lastFetchTime = 0;
   cachedConfigLite = null;
   lastFetchTimeLite = 0;
+  // কনফিগ বদলানোর প্রতিটি জায়গা থেকেই পাবলিক পেজ (হোম/কোর্স) নতুন করে রেন্ডার
+  // হয় — যাতে এডমিন এডিটের পর লাইভ/সময় পরিবর্তন দেপ্লয়ড সাইটেও সাথে সাথে ফুটে।
+  revalidatePublicPages();
+}
+
+/**
+ * Exam/কনফিগ পরিবর্তনের পর পাবলিক পেজ (হোম, কোর্স) যেন নতুন ডেটা দিয়ে সাথে
+ * সাথে নতুন করে রেন্ডার হয় — শুধু ISR-এর `revalidate = 60`-এর উপর নির্ভর না
+ * করে। দেপ্লয়ড (Vercel/Serverless) পরিবেশে module-লেভেল cache instance-ভেদে
+ * খালি হয় না, তাই admin এডিটের পর হোম পেজে পুরনো সময়/লাইভ স্ট্যাটাস আটকে
+ * থাকার সমস্যা এতে দূর হয়।
+ */
+function revalidatePublicPages() {
+  try {
+    revalidatePath("/");
+    revalidatePath("/course/[courseName]", "page");
+  } catch {
+    // revalidatePath কেবল একটি request-এর ভেতর থেকে ডাকা যায়; বাইরে হলে নীরবে ছেড়ে দিন
+  }
 }
 
 export async function fetchAppConfig(forceRefresh = false): Promise<AppConfigData> {
