@@ -187,7 +187,10 @@ export function parseBulkQuestionsText(
       // Split lines that carry multiple options like "ক) ঢাকা খ) খুলনা …" —
       // option TEXT may itself start with ক/খ/গ/ঘ/digits, so we split on the
       // option MARKERS rather than excluding letters from the text.
-      const inlineOptRegex = /(?:^|\s)([কখগঘabcdABCD]|[১-৪1-4])[\)\.\-–—]\s*([\s\S]*?)(?=\s*(?:[কখগঘabcdABCD]|[১-৪1-4])[\)\.\-–—]|$)/g;
+      // দশমিক সংখ্যা (যেমন "৫.৬ কিমি", "৩.৭", "1.5") যেন অপশন marker ("৩.") না
+      // ভেবে ভুল split না হয়: digit+ডট সেকশন তখনই marker হয় যখন ডটের পর আরেকটা
+      // অঙ্ক থাকে না (অর্থাৎ সত্যিকারের দশমিক নয়)। অক্ষর marker (ক/খ/গ/ঘ, a-d) আগের মতোই।
+      const inlineOptRegex = /(?:^|\s)((?:[কখগঘabcdABCD][\)\.\-–—])|(?:[১-৪1-4](?:[\)\-–—]|\.(?![০-৯0-9]))))\s*([\s\S]*?)(?=\s+(?:(?:[কখগঘabcdABCD][\)\.\-–—])|(?:[১-৪1-4](?:[\)\-–—]|\.(?![০-৯0-9]))))|$)/g;
       const inlineMatches = Array.from(line.matchAll(inlineOptRegex));
 
       if (inlineMatches.length >= 2) {
