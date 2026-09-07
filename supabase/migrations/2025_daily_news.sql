@@ -26,3 +26,9 @@ begin
    where id = row_id;
 end;
 $$;
+
+-- নিরাপত্তা: SECURITY DEFINER ফাংশনটি অ্যাপ শুধু service-role দিয়েই কল করে
+-- (server action), তাই anon/authenticated-কে সরাসরি EXECUTE দরকার নেই। REVOKE না
+-- করলে যেকোনো লগইনবিহীন কলার REST দিয়ে read_count বাড়াতে পারত (Supabase সতর্কতা)।
+revoke execute on function public.increment_daily_news_read(uuid) from anon, authenticated;
+grant execute on function public.increment_daily_news_read(uuid) to service_role;
