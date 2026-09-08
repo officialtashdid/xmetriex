@@ -212,6 +212,8 @@ export default function QuestionBankPage() {
       return;
     }
     setActiveGroupPath(node.fullPath);
+    // গ্রুপের নিচের সব শাখা একসাথে খোলা দেখাই — যাতে কোনো সাব-টপিক "লুকিয়ে" না থাকে
+    if (node.children.length > 0) expandBranch(node);
     detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -221,6 +223,19 @@ export default function QuestionBankPage() {
 
   const toggleExpand = (fullPath: string) => {
     setExpandedPaths((prev) => ({ ...prev, [fullPath]: !prev[fullPath] }));
+  };
+
+  // একটি নোডের নিচের সব শাখা (সব গভীরতায়) প্রসারিত অবস্থায় চিহ্নিত করে —
+  // গ্রুপে ক্লিক করলেই সম্পূর্ণ সাব-শাখা একসাথে দেখাতে।
+  const collectPaths = (node: HubNode): string[] =>
+    node.children.flatMap((c) => [c.fullPath, ...collectPaths(c)]);
+
+  const expandBranch = (node: HubNode) => {
+    setExpandedPaths((prev) => {
+      const next = { ...prev };
+      collectPaths(node).forEach((p) => (next[p] = true));
+      return next;
+    });
   };
 
   const activeGroupNode = useMemo(() => {

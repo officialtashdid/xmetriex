@@ -203,8 +203,8 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
           key={node.fullPath}
           className={`flex items-center gap-1.5 p-2 rounded-xl border transition cursor-pointer ${
             isSelected
-              ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
-              : "bg-white border-slate-300 text-black hover:border-emerald-400 hover:bg-emerald-50/40"
+              ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
+              : "bg-white border-slate-300 text-black hover:border-indigo-400 hover:bg-indigo-50/40"
           }`}
         >
           {hasChildren ? (
@@ -222,7 +222,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
               {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             </button>
           ) : (
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ml-1 ${isSelected ? "bg-white" : "bg-emerald-500"}`} />
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ml-1 ${isSelected ? "bg-white" : "bg-indigo-500"}`} />
           )}
 
           <button
@@ -256,7 +256,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
         <div key={node.fullPath}>
           {row}
           {hasChildren && isExpanded && (
-            <div className="ml-3 sm:ml-4 pl-2.5 border-l-2 border-emerald-100 space-y-1 mt-1">
+            <div className="ml-3 sm:ml-4 pl-2.5 border-l-2 border-indigo-100 space-y-1 mt-1">
               {renderNodeRows(node.children)}
             </div>
           )}
@@ -269,7 +269,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
   if (phase === "loading") {
     return (
       <div className="bg-white rounded-3xl p-10 border border-slate-200 shadow-sm flex flex-col items-center justify-center gap-3 font-bengali text-center">
-        <Loader2 className="w-10 h-10 text-teal-600 animate-spin" />
+        <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
         <p className="text-sm font-bold text-slate-700">এক্সেস যাচাই করা হচ্ছে...</p>
       </div>
     );
@@ -337,7 +337,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
   if (topics === null) {
     return (
       <div className="bg-white rounded-3xl p-10 border border-slate-200 shadow-sm flex flex-col items-center justify-center gap-3 font-bengali text-center">
-        <Loader2 className="w-10 h-10 text-teal-600 animate-spin" />
+        <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
         <p className="text-sm font-bold text-slate-700">প্রশ্নের তালিকা লোড হচ্ছে...</p>
       </div>
     );
@@ -346,9 +346,9 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
   const groupCardCls = (count: number, isSelected: boolean) =>
     `w-full text-left font-bengali rounded-3xl border shadow-sm hover:shadow-md transition-all duration-200 p-4 sm:p-5 cursor-pointer h-full active:scale-[0.995] ${
       isSelected
-        ? "bg-emerald-50 border-emerald-400 ring-2 ring-emerald-200"
+        ? "bg-indigo-50 border-indigo-400 ring-2 ring-indigo-200"
         : count > 0
-        ? "bg-white border-slate-200 hover:border-emerald-300"
+        ? "bg-white border-slate-200 hover:border-indigo-300"
         : "bg-slate-50 border-slate-200 opacity-80"
     }`;
 
@@ -357,7 +357,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
       {/* নিয়ম-হিন্ট */}
       <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row gap-2.5 sm:items-center text-[11px] sm:text-xs font-semibold text-indigo-950">
         <span className="flex items-center gap-1.5">
-          <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+          <Check className="w-4 h-4 text-indigo-600 shrink-0" />
           যেকোনো একটি কোর্সে এনরোল্ড থাকলেই সব টপিক-গ্রুপ আনলক
         </span>
         <span className="hidden sm:inline text-indigo-300">•</span>
@@ -412,14 +412,14 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
               }}
               className={`w-full text-left rounded-3xl border-2 p-4 sm:p-5 transition cursor-pointer mb-4 ${
                 selectedTopic === ALL_LABEL
-                  ? "border-teal-500 bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-600/20"
-                  : "border-teal-200 bg-gradient-to-r from-teal-50 to-emerald-50 text-slate-900 hover:border-teal-400"
+                  ? "border-indigo-500 bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-600/20"
+                  : "border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 text-slate-900 hover:border-indigo-400"
               }`}
             >
               <div className="flex items-center gap-3.5">
                 <div
                   className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
-                    selectedTopic === ALL_LABEL ? "bg-white/20" : "bg-teal-600"
+                    selectedTopic === ALL_LABEL ? "bg-white/20" : "bg-indigo-600"
                   }`}
                 >
                   <Sparkles className="w-6 h-6 text-white" />
@@ -428,7 +428,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
                   <h3 className="font-black text-sm sm:text-base leading-tight">সকল টপিক (মিক্সড মডেল টেস্ট)</h3>
                   <p
                     className={`text-[11px] sm:text-xs font-bold mt-0.5 ${
-                      selectedTopic === ALL_LABEL ? "text-teal-100" : "text-teal-800"
+                      selectedTopic === ALL_LABEL ? "text-indigo-100" : "text-indigo-800"
                     }`}
                   >
                     সব গ্রুপের প্রশ্ন এলোমেলো — মোট {toBengaliDigits(totalCount)}টি
@@ -437,7 +437,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
                 {selectedTopic === ALL_LABEL && <Check className="w-5 h-5 shrink-0 text-white" />}
                 <span
                   className={`hidden sm:inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-black shrink-0 ${
-                    selectedTopic === ALL_LABEL ? "bg-white/20 text-white" : "bg-teal-600 text-white"
+                    selectedTopic === ALL_LABEL ? "bg-white/20 text-white" : "bg-indigo-600 text-white"
                   }`}
                 >
                   নির্বাচন করুন <ChevronRight className="w-4 h-4" />
@@ -524,8 +524,8 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
                 <div
                   className={`flex items-center gap-1.5 p-2 rounded-xl border transition cursor-pointer ${
                     selectedTopic === activeGroupNode.fullPath
-                      ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
-                      : "bg-gradient-to-r from-indigo-50 to-white border-slate-300 text-black hover:border-emerald-400"
+                      ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
+                      : "bg-gradient-to-r from-indigo-50 to-white border-slate-300 text-black hover:border-indigo-400"
                   }`}
                 >
                   <span
@@ -573,7 +573,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="min-w-0 flex items-center gap-2 text-xs sm:text-sm">
                 <span className="text-slate-500 font-semibold shrink-0">🎯 নির্বাচিত:</span>
-                <strong className="text-teal-900 truncate">{selectedTopic}</strong>
+                <strong className="text-indigo-900 truncate">{selectedTopic}</strong>
                 {availableForSelection > 0 && (
                   <span className="text-slate-400 font-semibold shrink-0">
                     ({toBengaliDigits(availableForSelection)}টি প্রশ্ন)
@@ -637,7 +637,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
               </div>
             </div>
 
-            <div className="pt-1 border-t border-emerald-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="pt-1 border-t border-indigo-100 flex flex-col sm:flex-row items-center justify-between gap-3">
               <p className="text-[11px] sm:text-xs text-slate-500">
                 {practiceMode === "instant"
                   ? "উত্তর দিলেই সাথে সাথে সঠিক উত্তর ও ব্যাখ্যা দেখতে পাবেন।"
@@ -648,7 +648,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
                 disabled={!canStart || isStarting}
                 onClick={handleStartPractice}
                 className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 text-white font-bold px-8 py-3 rounded-2xl text-xs sm:text-sm shadow-md transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                  canStart ? "bg-teal-600 hover:bg-teal-700 active:scale-[0.98] shadow-teal-600/20" : "bg-slate-400"
+                  canStart ? "bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] shadow-indigo-600/20" : "bg-slate-400"
                 }`}
               >
                 {isStarting ? (
