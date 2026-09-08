@@ -355,19 +355,19 @@ export default function HomeClient({
         {/* দৈনিক সংবাদ — সবার উপরে (পুরো প্রস্থ; ৩টা দেখা যায়, বাকিটা ভেতরে স্ক্রল) */}
         <DailyNewsSection initialNews={initialDailyNews} />
 
-        {/* লাইভ এক্সাম + ফ্রি মডেল টেস্ট — পাশাপাশি সমান উচ্চতা; একটা না থাকলে অন্যটি পুরো প্রস্থ */}
-        <div className="grid gap-3 items-stretch grid-cols-1 sm:grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
-          <LiveExamsBox
-            exams={examsObj}
-            onSelectLiveExam={handleStartExamByKey}
-            onOpenEnrollModal={handleOpenEnrollModal}
-          />
-          <FreeModelTestsBox
-            exams={examsObj}
-            onStartExam={handleStartExamByKey}
-            onOpenEnrollModal={handleOpenEnrollModal}
-          />
-        </div>
+        {/* লাইভ এক্সাম — পূর্ণ-প্রস্থ বক্স; ভেতরে সব live সিরিয়ালি */}
+        <LiveExamsBox
+          exams={examsObj}
+          onSelectLiveExam={handleStartExamByKey}
+          onOpenEnrollModal={handleOpenEnrollModal}
+        />
+
+        {/* ফ্রি মডেল টেস্ট — আলাদা বক্স */}
+        <FreeModelTestsBox
+          exams={examsObj}
+          onStartExam={handleStartExamByKey}
+          onOpenEnrollModal={handleOpenEnrollModal}
+        />
 
         {/* আসন্ন লাইভ এক্সাম — ১ বক্স; ট্যাপে উইন্ডোয় লাল কাউন্টডাউন */}
         <UpcomingExamsBox exams={examsObj} />
