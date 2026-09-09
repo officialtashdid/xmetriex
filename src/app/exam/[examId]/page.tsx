@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Header } from "@/components/shared/Header";
 import { Footer } from "@/components/shared/Footer";
 import { ExamTimer } from "@/components/exam/ExamTimer";
-import { ExamGuard } from "@/components/exam/ExamGuard";
 import { QuestionList } from "@/components/exam/QuestionList";
 import { fetchExamWithQuestions, fetchExamForDemo } from "@/actions/admin-actions";
 import { submitExamAnswers } from "@/actions/exam-actions";
@@ -14,6 +13,43 @@ import { parseBangladeshDateTime, getTrueNowMs, isExamCurrentlyLive, syncBanglad
 import { Exam } from "@/types/exam";
 import { CheckCheck, Loader2, X, AlertCircle, CheckCircle2, Send, RotateCcw, LogIn, Layers, ChevronDown } from "lucide-react";
 import { toBengaliDigits } from "@/lib/utils";
+
+// ---- রিফ্রেশ-রিজিউম (নিরাপদ ড্রাফট) ----
+// শিক্ষার্থী ভুলে রিফ্রেশ/ট্যাব-ক্লোজ করলে উত্তর ও বাকি সময় হারায় না: পরীক্ষা
+// শুরুর মুহূর্তে শেষ-সময় (absolute, true-time) আর উত্তর localStorage-এ সেভ হয়;
+// আবার খুললে deadline না পেরোয় পর্যন্ত সেখান থেকে resume হয়। জমা সফল হলে মুছে যায়।
+interface ExamDraft {
+  answers: (number | null)[];
+  deadlineMs: number; // getTrueNowMs()-ভিত্তিক পরম শেষ-মুহূর্ত
+}
+function draftKey(studentId: string, examId: string): string {
+  return `bcs_exam_draft_${studentId}_${examId}`;
+}
+function loadDraft(studentId: string, examId: string): ExamDraft | null {
+  try {
+    const raw = localStorage.getItem(draftKey(studentId, examId));
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || !Array.isArray(d.answers)) return null;
+    return { answers: d.answers, deadlineMs: Number(d.deadlineMs) || 0 };
+  } catch {
+    return null;
+  }
+}
+function saveDraft(studentId: string, examId: string, draft: ExamDraft): void {
+  try {
+    localStorage.setItem(draftKey(studentId, examId), JSON.stringify(draft));
+  } catch {
+    /* ignore (private mode) */
+  }
+}
+function clearDraft(studentId: string, examId: string): void {
+  try {
+    localStorage.removeItem(draftKey(studentId, examId));
+  } catch {
+    /* ignore */
+  }
+}
 
 export default function ExamPage() {
   const params = useParams();
@@ -35,6 +71,8 @@ export default function ExamPage() {
   const [paletteOpen, setPaletteOpen] = useState(true);
   // লগইন-ছাড়া লিংকে এলে — এই পেজেই লগইন প্রম্পট (হোমে পাঠানো হয় না)
   const [loginPrompt, setLoginPrompt] = useState(false);
+  // রিফ্রেশ-রিজিউম: পরীক্ষার পরম শেষ-মুহূর্ত (true-time) — ড্রাফট-সেভে ব্যবহৃত
+  const deadlineRef = useRef(0);
 
   useEffect(() => {
     const isDemo = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1";
@@ -203,8 +241,28 @@ export default function ExamPage() {
         }
       }
 
+      // রিফ্রেশ-রিজিউম: শিক্ষার্থী আগে শুরু করে রিফ্রেশ করলে উত্তর ও বাকি সময় ফিরিয়ে দিই
+      // (জমা-সফল হলে ড্রাফট মুছে যায়, তাই জমা-পর আর resume হয় না — নিরাপদ)।
+      const qCount = ex.questions?.length || 0;
+      const draft = !demoMode ? loadDraft(parsedStudent.id, examId) : null;
+      const draftValid =
+        draft &&
+        draft.deadlineMs > getTrueNowMs() &&
+        draft.answers &&
+        draft.answers.length === qCount;
+
+      if (draftValid && qCount > 0) {
+        const remainingSecs = Math.max(1, Math.ceil((draft!.deadlineMs - getTrueNowMs()) / 1000));
+        deadlineRef.current = draft!.deadlineMs;
+        setExam(ex);
+        setStudentAnswers(draft!.answers as (number | null)[]);
+        setSecondsRemaining(remainingSecs);
+        setStarted(true);
+        return;
+      }
+
       setExam(ex);
-      setStudentAnswers(new Array(ex.questions?.length || 0).fill(null));
+      setStudentAnswers(new Array(qCount).fill(null));
       // টাইমার এখনো চালু নয় — "পরীক্ষা শুরু করুন" ট্যাপ করলে beginExam()-এ চালু হবে
     });
   }, [examId, router]);
@@ -214,6 +272,10 @@ export default function ExamPage() {
     const next = [...studentAnswers];
     next[qIdx] = optIdx;
     setStudentAnswers(next);
+    // রিফ্রেশ-রিজিউম: প্রতিটি উত্তরে ড্রাফট হালনাগাদ (deadline অপরিবর্তিত)
+    if (started && !demoMode && student && deadlineRef.current > 0) {
+      saveDraft(student.id, examId, { answers: next, deadlineMs: deadlineRef.current });
+    }
   };
 
   // ---- "পরীক্ষা শুরু করুন" ট্যাপ: টাইমার এখানেই চালু হয় (প্রশ্ন আগেই লোড) ----
@@ -231,6 +293,14 @@ export default function ExamPage() {
     }
     setSecondsRemaining(Math.max(1, duration));
     setStarted(true);
+    // রিফ্রেশ-রিজিউম: পরম শেষ-মুহূর্ত ও (শুরুতে) উত্তর সংরক্ষণ
+    deadlineRef.current = getTrueNowMs() + duration * 1000;
+    if (!demoMode && student) {
+      saveDraft(student.id, examId, {
+        answers: studentAnswers,
+        deadlineMs: deadlineRef.current
+      });
+    }
   };
 
   const doSubmit = async (timeRemaining: number) => {
@@ -273,6 +343,13 @@ export default function ExamPage() {
     const timeFormatted = `${mins} মি. ${secs} সে.`;
 
     if (res.success) {
+      // জমা সফল — রিফ্রেশ-রিজিউম ড্রাফট মুছে দিই (পরের ভিজিটে resume যেন না হয়)
+      try {
+        clearDraft(student.id, examId);
+        deadlineRef.current = 0;
+      } catch {
+        /* ignore */
+      }
       // একবার সাবমিশন সফল — ক্যাশে চিহ্নিত রাখি যেন পরের চেষ্টায় সাথে সাথে ওয়ার্নিং আসে
       try {
         const { markExamAttempted } = await import("@/lib/exam-attempt-cache");
@@ -560,17 +637,6 @@ export default function ExamPage() {
     <>
       {/* অ্যাম্বিয়েন্ট গ্রেডিয়েন্ট ব্যাকড্রপ */}
       <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-b from-indigo-50 via-white to-violet-50" />
-
-      {/* এক্সাম-সুরক্ষা: tab-ছাড়া সতর্ক/অটো-সাবমিট + কপি/প্রিন্ট-ব্লক (ডেমোতে নয়) */}
-      {!demoMode && started && (
-        <ExamGuard
-          active={started}
-          maxLeaves={3}
-          onAutoSubmit={() => {
-            doSubmit(secondsRemaining ?? 0);
-          }}
-        />
-      )}
 
       {/* ===== স্টিকি হেডার: প্রগ্রেস + টাইমার + সাবমিট ===== */}
       <header className="sticky top-0 z-40 bg-gradient-to-r from-slate-900 via-indigo-950 to-violet-950 text-white shadow-lg shadow-indigo-950/20 border-b border-white/10">

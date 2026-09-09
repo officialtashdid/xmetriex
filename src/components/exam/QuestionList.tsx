@@ -26,7 +26,6 @@ export const QuestionList: React.FC<QuestionListProps> = ({
     <div className="space-y-4 font-bengali">
       {questions.map((q, qIdx) => {
         const hasAnswered = studentAnswers[qIdx] !== null;
-        const answeredOpt = studentAnswers[qIdx];
 
         return (
           <article
@@ -36,17 +35,19 @@ export const QuestionList: React.FC<QuestionListProps> = ({
           >
             {/* প্রশ্ন শিরোনাম */}
             <div className="flex items-start gap-3">
-              <span className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white flex items-center justify-center text-sm sm:text-base font-black shadow-md shadow-indigo-600/20">
+              {/* সংখ্যা-ব্যাজ: দাগানো হলে সবুজ — রঙই বোঝায় উত্তর দেওয়া হয়েছে (লেখা নয়, layout নাড়ে না) */}
+              <span
+                className={`shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center text-sm sm:text-base font-black shadow-md transition-colors ${
+                  hasAnswered
+                    ? "bg-gradient-to-br from-emerald-500 to-green-600 text-white shadow-emerald-500/30"
+                    : "bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-indigo-600/20"
+                }`}
+              >
                 {toBengaliDigits(qIdx + 1)}
               </span>
               <h3 className="font-bold text-slate-900 text-base sm:text-lg leading-relaxed flex-1 min-w-0">
                 {q.q}
               </h3>
-              {hasAnswered && (
-                <span className="shrink-0 inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                  <Check className="w-3 h-3" /> উত্তর দেওয়া
-                </span>
-              )}
             </div>
 
             {/* অপশন */}
