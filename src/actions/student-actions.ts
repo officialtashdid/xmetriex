@@ -298,13 +298,36 @@ export async function syncStudentLogin(payload: {
       .or(`id.eq.${cleanId},email.eq.${payload.email.trim()}`)
       .maybeSingle();
 
-    // Only sync students who are already enrolled/approved. Do NOT auto-create new
-    // rows with empty courses: that registers every Google user as a "student" with
-    // no enrollment, which locks them out of Self-Practice and the Topic/Chapter
-    // question bank (verifyStudentAccess requires at least one course).
-    if (!existing) return { success: true };
-
     const now = getTrueDate().toISOString();
+
+    // শিক্ষার্থী আগে থেকে নেই → Google-লগইনকারীকে "রেজিস্টার্ড" হিসেবে নতুন রেকর্ড
+    // তৈরি করি (এনরোল ছাড়াই)। ফলে Admin-এর শিক্ষার্থী তালিকায় ওঠে এবং সেখান থেকে
+    // পরবর্তীতে এক/একাধিক কোর্সে এনরোল করানো যায়। courses খালি রাখা হয় — যাতে
+    // verifyStudentAccess (অন্তত একটি কোর্স চায়) তাকে এখনই কন্টেন্টে ঢুকতে না দেয়।
+    if (!existing) {
+      const { error: createErr } = await supabase.from("allowed_students").insert({
+        id: cleanId,
+        name: payload.name.trim() || "শিক্ষার্থী",
+        email: payload.email.trim() || "",
+        courses: [],
+        approved_at: now,
+        last_login_at: now,
+        photo_url: payload.photoURL || ""
+      });
+      if (!createErr) return { success: true };
+      // পুরনো schema-য় কিছু কলাম না থাকলে ছোট payload-এ চেষ্টা
+      const { error: createErr2 } = await supabase.from("allowed_students").insert({
+        id: cleanId,
+        name: payload.name.trim() || "শিক্ষার্থী",
+        email: payload.email.trim() || "",
+        courses: []
+      });
+      if (!createErr2) return { success: true };
+      // সত্যিকারের DB ত্রুটি হলে (RLS/constraint) নীরবে ব্যর্থ — লগইন আটকায় না
+      console.error("Auto-register student error:", createErr2);
+      return { success: false };
+    }
+
     const existingCourses = existing?.courses || [];
 
     const { error } = await supabase.from("allowed_students").upsert({
