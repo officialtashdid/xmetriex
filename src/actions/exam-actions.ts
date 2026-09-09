@@ -109,6 +109,62 @@ export async function ensureExamSession(): Promise<{ session: boolean; name?: st
   return { session: true, id: sessionUser.id, name: sessionUser.name };
 }
 
+/**
+ * পরীক্ষা শুরুর সময় সার্ভারে start-রেকর্ড তৈরি করে — client-এর দাবি নয়।
+ * লিডারবোর্ড-যোগ্যতা (is_live_submission) পরে এই রেকর্ডের started_at live
+ * উইন্ডোতে পড়ে কিনা তার উপর নির্ধারিত হয় (জমা-সময় দিয়ে নয়) — যাতে শেষ
+ * বাউন্ডারিতে শুরু করলেও নাম লিডারবোর্ডে ওঠে।
+ */
+export async function claimExamStart(
+  examKey: string,
+  clientStudentId?: string
+): Promise<{ ok: boolean; startedAtMs?: number }> {
+  try {
+    const { getSessionUserFromCookies } = await import("@/lib/teacher-auth");
+    const sessionUser = await getSessionUserFromCookies();
+    if (!sessionUser) return { ok: false };
+
+    const examKeyClean = String(examKey || "").trim();
+    if (!examKeyClean) return { ok: false };
+
+    // শিক্ষার্থী-পরিচয় ঠিক করা: client id প্রিমিয়ামে সার্ভার-যাচাই হয়; ফ্রিতে session uid
+    const { data: ex } = await supabase
+      .from("exams")
+      .select("is_free, course")
+      .eq("id", examKeyClean)
+      .maybeSingle();
+    let studentId = "";
+    if (ex?.is_free === true) {
+      studentId = sessionUser.id;
+    } else {
+      const { verifyStudentAccess } = await import("@/actions/student-actions");
+      const rawId = String(clientStudentId || sessionUser.id || "").trim();
+      const access = await verifyStudentAccess(sessionUser.id, ex?.course || "", sessionUser.email);
+      studentId = access.normalizedId || rawId;
+      if (!access.allowed) return { ok: false };
+    }
+    if (!studentId) return { ok: false };
+
+    const nowIso = new Date().toISOString();
+    // একবারই রেকর্ড (প্রথম শুরুর সময় সংরক্ষিত) — বারবার শুরু করলে overwrite হয় না
+    const { error } = await supabase
+      .from("exam_attempt_starts")
+      .upsert(
+        { exam_id: examKeyClean, student_id: studentId, started_at: nowIso },
+        { onConflict: "exam_id,student_id", ignoreDuplicates: true }
+      );
+    if (error) {
+      // টেবিল এখনো না থাকলে (migration pending) নীরবে fail — ব্লক করি না
+      if (/exam_attempt_starts/.test(String(error.message || ""))) return { ok: false };
+      throw error;
+    }
+    return { ok: true, startedAtMs: Date.parse(nowIso) };
+  } catch (err) {
+    console.error("claimExamStart error:", err);
+    return { ok: false };
+  }
+}
+
 export async function submitExamAnswers(payload: {
   studentName: string;
   studentId: string;
@@ -217,13 +273,36 @@ export async function submitExamAnswers(payload: {
       };
     }
 
-    // Is submitted within live scheduled window (with a small grace period so an
-    // on-time submission right at the deadline isn't misclassified as a late
-    // "practice" attempt). LIVE_GRACE_MS lives in bangladesh-time.ts so answer
-    // release (isAnswerTimeReached) delays itself past the same boundary.
-    const isLiveSubmission = (startTime && endTime)
+    // লিডারবোর্ড-যোগ্যতা (is_live_submission) নির্ধারিত হয় **শুরু-সময়** দিয়ে:
+    // শিক্ষার্থীর exam_attempt_starts-এর started_at যদি live-উইন্ডোতে (start..end) পড়ে
+    // — জমা কখন হয়েছে তা দিয়ে নয়। ফলে শেষ-বাউন্ডারিতে শুরু করলেও নাম লিডারবোর্ডে ওঠে,
+    // কিন্তু শেষের পরে শুরু করলে (start-রেকর্ড live-বাইরে) ওঠে না। (start-টেবিল migration-নির্ভর)
+    let liveByStart = false;
+    if (startTime && endTime) {
+      try {
+        const { data: startRow } = await supabase
+          .from("exam_attempt_starts")
+          .select("started_at")
+          .eq("exam_id", payload.examKey)
+          .eq("student_id", recordStudentId)
+          .maybeSingle();
+        if (startRow?.started_at) {
+          const s = parseBangladeshDateTime(startRow.started_at);
+          liveByStart = !!s && s.getTime() >= startTime.getTime() && s.getTime() <= endTime.getTime();
+        }
+      } catch {
+        // টেবিল/মাইগ্রেশন না থাকলে নীরবে fallback-এ নামি
+      }
+    }
+
+    // Is submitted within live scheduled window (fallback: জমা-সময় — start-রেকর্ড
+    // না থাকলে / মাইগ্রেশন pending হলে আগের মতোই)। LIVE_GRACE_MS answer-release
+    // গেটের সাথেও সামঞ্জস্য রাখে।
+    const liveBySubmit = (startTime && endTime)
       ? (now.getTime() >= startTime.getTime() && now.getTime() <= endTime.getTime() + LIVE_GRACE_MS)
       : false;
+
+    const isLiveSubmission = startTime && endTime ? (liveByStart || liveBySubmit) : false;
 
     if (isLiveSubmission) {
       const alreadySubmitted = await checkStudentAlreadySubmitted(payload.examKey, recordStudentId);

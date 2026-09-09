@@ -283,6 +283,14 @@ export default function ExamPage() {
     if (!exam || started || secondsRemaining !== null) return;
     // ডিভাইস ঘড়ি নয় — বাংলাদেশ (নেটওয়ার্ক-সিঙ্কড) সময়ে হিসাব নিশ্চিত করি
     try { await syncBangladeshNetworkTime(); } catch { /* fallback */ }
+    // লিডারবোর্ড-যোগ্যতা সার্ভারের start-রেকর্ডে নির্ভর করে — শুরু বাটনে সার্ভার claim চালাই
+    // (fail হলে ব্লক করি না; মাইগ্রেশন pending থাকলে submit-উইন্ডো fallback-ই রক্ষা করবে)
+    try {
+      const { claimExamStart } = await import("@/actions/exam-actions");
+      if (!demoMode) {
+        await claimExamStart(examId, student?.id);
+      }
+    } catch { /* fallback */ }
     let duration = (exam.timerMinutes || 10) * 60;
     if (!demoMode && isExamCurrentlyLive(exam) && exam.endTime) {
       const endTime = parseBangladeshDateTime(exam.endTime);
