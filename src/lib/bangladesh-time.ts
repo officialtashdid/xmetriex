@@ -152,17 +152,19 @@ export function isAnswerTimeReached(exam: Exam): boolean {
   // ১. শিক্ষক প্যানেল থেকে যদি রেজাল্ট ম্যানুয়ালি প্রকাশ/রিলিজ করা থাকে
   if (exam.isResultPublished === true) return true;
 
-  // ২. পরীক্ষার নির্ধারিত শেষ সময় (endTime বা leaderboardEndTime) যদি পার হয়ে যায়।
-  //     LIVE_GRACE_MS-এর আগে উত্তর কখনো খুলবে না — যাতে কী-রিলিজ আর লাইভ-জমা
-  //     উইন্ডো ওভারল্যাপ না করে (স্ক্রিপ্টেড পারফেক্ট স্কোর প্রতিরোধ)।
-  //     শিক্ষক আগেই ফলাফল পাবলিশ করলে (isResultPublished) সঙ্গে সঙ্গে খুলবে।
+  // ২. নির্ধারিত (লাইভ) পরীক্ষার উত্তর-রিলিজ সময়।
+  //     নিয়ম: যারা live-উইন্ডোতে (শেষ-বাউন্ডারি-সহ) শুরু করেছিল তারা যেন পুরো
+  //     exam-সময় (timerMinutes) শেষ করার আগে উত্তর/উত্তরপত্র না খোলে। তাই লাইভ
+  //     শেষ-সময়ের (endTime/leaderboardEndTime) পরে আরও exam-দৈর্ঘ্য (মিনিট) অপেক্ষা
+  //     করতে হয় — LIVE_GRACE-এর বদলে। শিক্ষক আগেই publish করলে (শর্ত-১) সঙ্গে সঙ্গে।
   const now = getTrueDate();
+  const examDurationMs = Math.max(1, (exam.timerMinutes || 10)) * 60 * 1000;
   if (exam.endTime) {
     const endTime = parseBangladeshDateTime(exam.endTime);
-    if (endTime && now.getTime() >= endTime.getTime() + LIVE_GRACE_MS) return true;
+    if (endTime && now.getTime() >= endTime.getTime() + examDurationMs) return true;
   } else if (exam.leaderboardEndTime) {
     const endTime = parseBangladeshDateTime(exam.leaderboardEndTime);
-    if (endTime && now.getTime() >= endTime.getTime() + LIVE_GRACE_MS) return true;
+    if (endTime && now.getTime() >= endTime.getTime() + examDurationMs) return true;
   }
 
   return false;

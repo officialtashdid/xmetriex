@@ -292,13 +292,11 @@ export default function ExamPage() {
       }
     } catch { /* fallback */ }
     let duration = (exam.timerMinutes || 10) * 60;
-    if (!demoMode && isExamCurrentlyLive(exam) && exam.endTime) {
-      const endTime = parseBangladeshDateTime(exam.endTime);
-      if (endTime) {
-        const remainingLiveSecs = Math.floor((endTime.getTime() - getTrueNowMs()) / 1000);
-        if (remainingLiveSecs > 0) duration = Math.min(duration, remainingLiveSecs);
-      }
-    }
+    // লাইভ পরীক্ষায় টাইমারকে আর live-উইন্ডোতে ক্যাপ করা হয় না: যারা live-উইন্ডোতে
+    // (শেষ-বাউন্ডারি-সহ) শুরু করলেই তারা পুরো exam-সময় পায়। লিডারবোর্ড-যোগ্যতা তখন
+    // start-রেকর্ড (claimExamStart) live-উইন্ডোতে পড়ে কিনা তার উপর, আর উত্তর-রিলিজ
+    // live-শেষ + exam-দৈর্ঘ্য পরে — তাই বাউন্ডারি-শুরুর ব্যক্তিও নিরাপদে পুরো সময় পায়।
+    // (demo মোডে সবসময়ই পুরো সময় — সেভ হয় না।)
     setSecondsRemaining(Math.max(1, duration));
     setStarted(true);
     // রিফ্রেশ-রিজিউম: পরম শেষ-মুহূর্ত ও (শুরুতে) উত্তর সংরক্ষণ
