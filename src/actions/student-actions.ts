@@ -307,6 +307,141 @@ export async function getStudentSubmissions(studentId: string): Promise<Submissi
 }
 
 /**
+ * পোর্টালের জন্য সব ডেটা — একটাই সার্ভার-কল, ভেতরে সমান্তরাল কোয়েরি।
+ *
+ * কেন: DB ছোট, কিন্তু প্রতি কল ~১০০–৪০০ms নেয়। আগে পোর্টাল খুলতে ৫–৬টি
+ * ক্রমিক সার্ভার-কল হতো (verify → exams → submissions → mistakes → links…) —
+ * তাতেই ধীর লাগত। এখন এক কলেই সব, ভেতরে Promise.all দিয়ে সমান্তরাল।
+ */
+export async function getStudentPortalData(
+  rawStudentId: string,
+  email?: string
+): Promise<{
+  allowed: boolean;
+  studentId: string;
+  submissions: Submission[];
+  exams: Record<string, Exam>;
+  driveRoutineUrl: string;
+  driveSyllabusUrl: string;
+} | null> {
+  const cleanId = String(rawStudentId || "").trim();
+  const normId = parseBengaliDigits(cleanId).trim();
+  if (!cleanId) return null;
+
+  // SECURITY: কেবল নিজের সেশনেই নিজের ডেটা
+  if (!(await sessionOwnsStudent(cleanId)) && !(await sessionOwnsStudent(normId))) return null;
+
+  const ids = Array.from(new Set([cleanId, normId])).filter(Boolean);
+
+  // সব স্বাধীন কোয়েরি একসাথে (সমান্তরাল) — ক্রমিক অপেক্ষা নেই
+  const [subsRes, examsRes, settingsRes, access] = await Promise.all([
+    supabase
+      .from("submissions")
+      .select(
+        "id, student_name, student_id, exam_key, exam_title, score, correct, incorrect, total_questions, time_spent, answers, is_pending_evaluation, is_live_submission, submitted_at"
+      )
+      .in("student_id", ids)
+      .order("submitted_at", { ascending: false })
+      .limit(200),
+    // exams টেবিল ছোট (কয়েকটি সারি) — সব meta একবারে আনা সস্তা (ক্রমিক ২য় কোয়েরির চেয়ে)
+    supabase
+      .from("exams")
+      .select(
+        "id, course, subject, title, timer_minutes, is_free, pass_mark, start_time, end_time, is_result_published, leaderboard_start_time, leaderboard_end_time"
+      ),
+    supabase.from("app_settings").select("drive_routine_url, drive_syllabus_url").eq("id", "main").maybeSingle(),
+    verifyStudentAccess(cleanId, "ALL", email)
+  ]);
+
+  const subs: Submission[] = (subsRes.data || []).map((row: any) => ({
+    id: row.id,
+    studentName: row.student_name,
+    studentId: row.student_id,
+    examKey: row.exam_key,
+    examTitle: row.exam_title,
+    score: Number(row.score ?? 0),
+    correct: Number(row.correct ?? 0),
+    incorrect: Number(row.incorrect ?? 0),
+    totalQuestions: Number(row.total_questions ?? 0),
+    timeSpent: row.time_spent,
+    answers: Array.isArray(row.answers)
+      ? row.answers.map((v: any) => (v === -1 || v === null ? null : Number(v)))
+      : [],
+    isPendingEvaluation: row.is_pending_evaluation,
+    isLiveSubmission: row.is_live_submission,
+    submittedAtISO: row.submitted_at
+  }));
+
+  const exams: Record<string, Exam> = {};
+  (examsRes.data || []).forEach((ex: any) => {
+    exams[ex.id] = {
+      id: ex.id,
+      course: ex.course,
+      subject: ex.subject,
+      title: ex.title,
+      timerMinutes: ex.timer_minutes,
+      isFree: ex.is_free,
+      passMark: Number(ex.pass_mark ?? 0),
+      startTime: ex.start_time,
+      endTime: ex.end_time,
+      isResultPublished: ex.is_result_published,
+      leaderboardStartTime: ex.leaderboard_start_time,
+      leaderboardEndTime: ex.leaderboard_end_time
+    };
+  });
+
+  // pending মূল্যায়ন — per-exam solutions একবার cache করে, UPDATE একসাথে
+  const { isAnswerTimeReached } = await import("@/lib/bangladesh-time");
+  const solutionsCache = new Map<string, Promise<QuestionSolution[] | null>>();
+  const jobs: Promise<unknown>[] = [];
+  for (const s of subs) {
+    const ex = exams[s.examKey];
+    const released = ex ? isAnswerTimeReached(ex) : true;
+    if (!released || !(s.isPendingEvaluation || s.score === undefined)) continue;
+
+    let p = solutionsCache.get(s.examKey);
+    if (!p) {
+      p = getExamSolutions(s.examKey);
+      solutionsCache.set(s.examKey, p);
+    }
+    const solutions = await p;
+    if (!solutions || !s.answers) continue;
+
+    let cor = 0;
+    let incor = 0;
+    s.answers.forEach((ans, idx) => {
+      const sol = solutions[idx];
+      if (ans !== null && sol) {
+        if (ans === sol.correct) cor++;
+        else incor++;
+      }
+    });
+    s.correct = cor;
+    s.incorrect = incor;
+    s.score = Math.max(0, cor - incor * 0.5);
+    s.isPendingEvaluation = false;
+    jobs.push(
+      Promise.resolve(
+        supabase
+          .from("submissions")
+          .update({ score: s.score, correct: cor, incorrect: incor, is_pending_evaluation: false })
+          .eq("id", s.id)
+      )
+    );
+  }
+  if (jobs.length > 0) await Promise.allSettled(jobs);
+
+  return {
+    allowed: !!access?.allowed,
+    studentId: access?.normalizedId || cleanId,
+    submissions: subs,
+    exams,
+    driveRoutineUrl: settingsRes?.data?.drive_routine_url || "",
+    driveSyllabusUrl: settingsRes?.data?.drive_syllabus_url || ""
+  };
+}
+
+/**
  * পোর্টালের জন্য টার্গেটেড exam-মেটা — শুধু এই শিক্ষার্থীর যে পরীক্ষাগুলোতে
  * submission আছে সেগুলোর meta (কোনো প্রশ্ন/topicJOIN নয়)। পুরো exams টেবিল
  * টানার বদলে এতে ডেটা-ভলিউম অনেক কমে — পোর্টাল/ফলাফল দ্রুত খোলে।

@@ -247,16 +247,13 @@ export async function getPracticeQuestions(
 
     // 2. Exam questions with the matching topic — only from accessible exams
     //    whose answers are released (always-open practice exams are fine).
-    //    PERF: exams আগেই আনা হয়েছে (allExams); links-এ nested !inner join দিয়ে
-    //    সার্ভার-সাইডেই টপিক-ফিল্টার — সব exam-প্রশ্ন নামানো বন্ধ।
-    let linkQuery = supabase
+    //    PERF: exams আগেই আনা হয়েছে (allExams)। মাপা গেছে — nested ilike ফিল্টার
+    //    (~462ms) সাধারণ join-এর (~236ms) চেয়ে ধীর, আর টেবিল ছোট (৫০০ লিংক) —
+    //    তাই সাধারণ join-ই দ্রুত; JS-এ isTopicMatch দিয়ে নির্ভুল করা হয়।
+    const { data: links } = await supabase
       .from("exam_questions_link")
       .select("exam_id, order_index, question_bank!inner(id, q, opts, topic, correct, exp)")
       .limit(3000);
-    if (topicLikePattern) {
-      linkQuery = linkQuery.ilike("question_bank.topic", topicLikePattern);
-    }
-    const { data: links } = await linkQuery;
 
     const byExam: Record<string, any[]> = {};
     (links || []).forEach((link: any) => {

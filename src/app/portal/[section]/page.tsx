@@ -77,6 +77,9 @@ export default function PortalSectionPage() {
   const [configAttempt, setConfigAttempt] = useState(0);
   const [activeStudentId, setActiveStudentId] = useState("");
   const [selectedSub, setSelectedSub] = useState<Submission | null>(null);
+  // PERF: এক কলেই আসা submission — ড্যাশবোর্ডকে আবার সার্ভারে যেতে হয় না
+  const [initialSubmissions, setInitialSubmissions] = useState<Submission[] | null>(null);
+  const [bootLoading, setBootLoading] = useState(true);
 
   useEffect(() => {
     if (!meta) {
@@ -90,66 +93,71 @@ export default function PortalSectionPage() {
       return;
     }
 
-    // PERF: শুধু drive-লিংক আনি (exam-তালিকা পরে শিক্ষার্থীর নিজের submission
-    // থেকে টার্গেটেডভাবে আসে) — পুরো exams/config স্ক্যান হয় না।
-    fetchDriveLinks()
-      .then((d) =>
+    // PERF: একটাই সার্ভার-কল — ভেতরে সব কোয়েরি সমান্তরাল (আগে ৫–৬টি ক্রমিক কল
+    // হতো: drive-links → verify → exams → submissions → mistakes…)। DB ছোট,
+    // তাই round-trip সংখ্যাই ছিল আসল খরচ।
+    const gUser = getLocalStudentUser();
+    if (!gUser) {
+      // লগইন নেই — শুধু drive লিংক আনি (গেট দেখানোর জন্য)
+      fetchDriveLinks()
+        .then((d) =>
+          setConfig({
+            courses: [],
+            subjects: [],
+            topics: [],
+            topicQuestions: [],
+            exams: {},
+            teacherPass: "",
+            driveRoutineUrl: d.driveRoutineUrl,
+            driveSyllabusUrl: d.driveSyllabusUrl,
+            pinnedCourses: []
+          } as AppConfigData)
+        )
+        .catch(() => {});
+      return;
+    }
+
+    setGoogleUser(gUser);
+    (async () => {
+      try {
+        const { getStudentPortalData } = await import("@/actions/student-actions");
+        let data = await getStudentPortalData(gUser.uid, gUser.email);
+
+        // Google uid/email-এ এনরোলমেন্ট না মিললে আগে যাচাই-কৃত (ফোন/ম্যানুয়াল)
+        // পরিচয় দিয়ে আবার চেষ্টা — পুরনো শিক্ষার্থীরাও যেন রেকর্ড দেখতে পান
+        if (!data?.allowed) {
+          const { getVerifiedStudent } = await import("@/lib/student-identity");
+          const verified = getVerifiedStudent();
+          if (verified?.id && verified.id !== gUser.uid) {
+            const alt = await getStudentPortalData(verified.id, verified.email);
+            if (alt?.allowed) data = alt;
+          }
+        }
+
+        if (!data) {
+          setConfigError("সার্ভার থেকে তথ্য লোড করা যায়নি। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+          return;
+        }
+
         setConfig({
           courses: [],
           subjects: [],
           topics: [],
           topicQuestions: [],
-          exams: {},
+          exams: data.exams,
           teacherPass: "",
-          driveRoutineUrl: d.driveRoutineUrl,
-          driveSyllabusUrl: d.driveSyllabusUrl,
+          driveRoutineUrl: data.driveRoutineUrl,
+          driveSyllabusUrl: data.driveSyllabusUrl,
           pinnedCourses: []
-        } as AppConfigData)
-      )
-      .catch(() => {
-        console.error("Portal section config fetch failed.");
+        } as AppConfigData);
+        setInitialSubmissions(data.submissions);
+        setActiveStudentId(data.studentId);
+        setBootLoading(false);
+      } catch {
         setConfigError("সার্ভার থেকে তথ্য লোড করা যায়নি। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
-      });
-
-    const gUser = getLocalStudentUser();
-    if (gUser) {
-      setGoogleUser(gUser);
-      // আসল এনরোলমেন্ট-রেকর্ডের আইডি ব্যবহার করি (allowed_students-এ ফোন/uid যেটাই হোক):
-      // পরীক্ষার সাবমিশন ও বিশ্লেষণ সেই আইডিতে সেভ হয়, তাই uid-এ খুঁজলে খালি দেখাত।
-      (async () => {
-        let effId = gUser.uid;
-        try {
-          const { verifyStudentAccess } = await import("@/actions/student-actions");
-          let res = await verifyStudentAccess(gUser.uid, "ALL", gUser.email);
-          // Google uid/email-এ এনরোলমেন্ট না মিললে আগে যাচাই-কৃত
-          // (ফোন/ম্যানুয়াল) পরিচয় দিয়ে চেষ্টা
-          if (!res.allowed) {
-            const { getVerifiedStudent } = await import("@/lib/student-identity");
-            const verified = getVerifiedStudent();
-            if (verified && verified.id && verified.id !== gUser.uid) {
-              const alt = await verifyStudentAccess(verified.id, "ALL", verified.email);
-              if (alt.allowed) res = alt;
-            }
-          }
-          if (res.allowed && res.normalizedId) effId = res.normalizedId;
-        } catch {
-          // verify ব্যর্থ হলে uid-ই থাকবে
-        }
-        setActiveStudentId(effId);
-
-        // PERF: শুধু এই শিক্ষার্থীর যে পরীক্ষাগুলোতে submission আছে সেগুলোর meta —
-        // পুরো exams টেবিল নয় (তাই ফলাফল/বিশ্লেষণ দ্রুত খোলে)
-        try {
-          const { getStudentExamMeta } = await import("@/actions/student-actions");
-          const examsMap = await getStudentExamMeta(effId);
-          if (examsMap && Object.keys(examsMap).length > 0) {
-            setConfig((prev) => (prev ? { ...prev, exams: examsMap } : prev));
-          }
-        } catch {
-          // meta না পেলে খালি exams-ই থাকবে — UI ভাঙে না
-        }
-      })();
-    }
+        setBootLoading(false);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, configAttempt, meta]);
 
@@ -229,7 +237,7 @@ export default function PortalSectionPage() {
           </div>
         )}
 
-        {!configError && googleUser && !activeStudentId && (
+        {!configError && googleUser && (!activeStudentId || bootLoading) && (
           <LoadingState
             label="ডেটা লোড হচ্ছে..."
             hint="আপনার ফলাফল ও পারফরম্যান্স প্রস্তুত করা হচ্ছে"
@@ -248,6 +256,7 @@ export default function PortalSectionPage() {
             // অন্য সেকশনে যেতে উপরের "← Student Portal-এ ফিরুন" দিয়েই ফিরবে।
             hideTabs
             studentId={activeStudentId}
+            initialSubmissions={initialSubmissions || undefined}
             exams={config?.exams || {}}
             routineUrl={config?.driveRoutineUrl}
             syllabusUrl={config?.driveSyllabusUrl}

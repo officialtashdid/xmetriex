@@ -71,6 +71,9 @@ interface StudentDashboardModalProps {
   hideTabs?: boolean;
   studentId: string;
   exams: Record<string, Exam>;
+  /** PERF: পোর্টাল এক কলেই submissions এনে দিলে সেটা সরাসরি ব্যবহার করি —
+      তখন নিজে আর সার্ভারে যায় না (এক রাউন্ডট্রিপ সাশ্রয়)। */
+  initialSubmissions?: Submission[];
   config?: AppConfigData;
   routineUrl?: string;
   syllabusUrl?: string;
@@ -86,6 +89,7 @@ export const StudentDashboardModal: React.FC<StudentDashboardModalProps> = ({
   hideTabs = false,
   studentId,
   exams,
+  initialSubmissions,
   routineUrl = "https://drive.google.com",
   syllabusUrl = "https://drive.google.com",
   onClose,
@@ -146,44 +150,63 @@ export const StudentDashboardModal: React.FC<StudentDashboardModalProps> = ({
 
       // Submission history — a network failure clears the loading state (and any
       // stale analytics) and shows the empty state; it is NOT an access denial.
-      getStudentSubmissions(studentId)
-        .then(async (data) => {
-          if (data === null) {
-            // Not authorized to view these records (no matching login session)
-            setAccessDenied(true);
+      // PERF: পোর্টাল ইতিমধ্যে submissions দিয়ে দিলে আবার সার্ভারে যাই না।
+      if (initialSubmissions) {
+        setSubmissions(initialSubmissions);
+        calculateStudentAnalytics(initialSubmissions, exams)
+          .then(setAnalytics)
+          .catch(() => setAnalytics(null))
+          .finally(() => setIsLoading(false));
+      } else {
+        getStudentSubmissions(studentId)
+          .then(async (data) => {
+            if (data === null) {
+              // Not authorized to view these records (no matching login session)
+              setAccessDenied(true);
+              setSubmissions([]);
+              setAnalytics(null);
+              setIsLoading(false);
+              return;
+            }
+            setSubmissions(data);
+            const analyticsRes = await calculateStudentAnalytics(data, exams);
+            setAnalytics(analyticsRes);
+            setIsLoading(false);
+          })
+          .catch(() => {
             setSubmissions([]);
             setAnalytics(null);
             setIsLoading(false);
-            return;
-          }
-          setSubmissions(data);
-          const analyticsRes = await calculateStudentAnalytics(data, exams);
-          setAnalytics(analyticsRes);
-          setIsLoading(false);
-        })
-        .catch(() => {
-          setSubmissions([]);
-          setAnalytics(null);
-          setIsLoading(false);
-        });
+          });
+      }
       refreshStores();
       setVisibleMistakes(MISTAKE_PAGE_SIZE);
       setVisibleBookmarks(MISTAKE_PAGE_SIZE);
-      // Cross-device sync: সার্ভার থেকে পূর্ণ mistakes/bookmarks নামিয়ে UI-তে
-      // দেখাও — localStorage-এ শুধু ফাস্ট-ক্যাশ, বাকি সব ডেটাবেজ থেকে আসে
-      // (সেশন নেই/টেবিল নেই/ত্রুটি হলে নীরব — লোকাল ডেটাই থেকে যায়)
-      syncStudentMistakeData(studentId)
-        .then((res) => {
-          if (res) {
-            setMistakes(res.mistakes);
-            setBookmarks(res.bookmarks);
-          } else {
-            refreshStores();
-          }
-        })
-        .catch(() => refreshStores());
     }
-  }, [isOpen, studentId, exams]);
+  }, [isOpen, studentId, exams, initialSubmissions]);
+
+  // PERF: mistakes/bookmarks সিঙ্ক শুধু দরকার হলে — শিক্ষার্থী ওই ট্যাব খুললে।
+  // আগে ড্যাশবোর্ড খুললেই (ফলাফল দেখতে গেলেও) সার্ভারে যেত — অপ্রয়োজনীয় wait।
+  useEffect(() => {
+    if (!isOpen || !studentId) return;
+    if (activeTab !== "mistakes" && activeTab !== "bookmarks") return;
+
+    let cancelled = false;
+    syncStudentMistakeData(studentId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res) {
+          setMistakes(res.mistakes);
+          setBookmarks(res.bookmarks);
+        }
+      })
+      .catch(() => {
+        /* নীরব — লোকাল ডেটাই চলবে */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, studentId, activeTab]);
 
   const handleSaveName = async () => {
     if (!newName.trim() || !studentUser) return;
