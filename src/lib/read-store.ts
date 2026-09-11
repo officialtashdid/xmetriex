@@ -153,16 +153,68 @@ function newItem(q: string, opts: string[], correct: number, exp: string, subjec
 }
 
 function upload(studentId: string, items: ReadQuestionItem[]): void {
-  if (!items.length) return;
-  void (async () => {
-    try {
-      if (!(await hasLoginSession())) return;
-      const { addReadItems } = await import("@/actions/mistake-actions");
-      await addReadItems(studentId, items);
-    } catch {
-      // নীরব — পরের সিঙ্কে আবার চেষ্টা হবে
-    }
-  })();
+  queueUpload(studentId, items);
+}
+/**
+ * ── আপলোড ব্যাচিং ────────────────────────────────────────────────────────
+ * প্রশ্নব্যাংকে শিক্ষার্থী পরপর অনেক প্রশ্নে ✓ টিক দেয়। প্রতি টিকে আলাদা
+ * সার্ভার-কল গেলে ৫০টি টিকে ~৫০টি রিকোয়েস্ট যেত। তাই টিকগুলো অল্প সময় জমিয়ে
+ * একবারে পাঠাই (১.৫ সেকেন্ড নিষ্ক্রিয়তা বা ট্যাব লুকানোর সময়)।
+ * ব্যর্থ হলেও কিছু হারায় না — পরের বার পেজ খুললে সিঙ্ক নিজেই বাকিগুলো তুলে নেয়।
+ */
+const FLUSH_DELAY_MS = 1500;
+const pendingUploads = new Map<string, ReadQuestionItem[]>();
+const flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function queueUpload(studentId: string, items: ReadQuestionItem[]): void {
+  if (typeof window === "undefined" || !items?.length) return;
+  const list = pendingUploads.get(studentId) || [];
+  const seen = new Set(list.map((i) => keyOf(i)));
+  items.forEach((it) => {
+    const k = keyOf(it);
+    if (seen.has(k)) return;
+    seen.add(k);
+    list.push(it);
+  });
+  pendingUploads.set(studentId, list);
+
+  const timer = flushTimers.get(studentId);
+  if (timer) clearTimeout(timer);
+  flushTimers.set(
+    studentId,
+    setTimeout(() => void flushUploads(studentId), FLUSH_DELAY_MS)
+  );
+}
+
+async function flushUploads(studentId: string): Promise<void> {
+  const timer = flushTimers.get(studentId);
+  if (timer) {
+    clearTimeout(timer);
+    flushTimers.delete(studentId);
+  }
+  const items = pendingUploads.get(studentId);
+  pendingUploads.delete(studentId);
+  if (!items || items.length === 0) return;
+  try {
+    if (!(await hasLoginSession())) return;
+    const { addReadItems } = await import("@/actions/mistake-actions");
+    await addReadItems(studentId, items);
+  } catch {
+    // নীরব — পরের সিঙ্কে reconcile হবে
+  }
+}
+
+// ট্যাব লুকানো/বন্ধ করার আগে জমে থাকা টিকগুলো পাঠিয়ে দিই
+if (typeof window !== "undefined") {
+  try {
+    window.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        Array.from(pendingUploads.keys()).forEach((id) => void flushUploads(id));
+      }
+    });
+  } catch {
+    // ignore
+  }
 }
 
 /** ✓ টিক বসায়/তুলে দেয়। @returns নতুন অবস্থা (true = পড়া হয়েছে) */
