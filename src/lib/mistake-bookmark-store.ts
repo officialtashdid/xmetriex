@@ -221,6 +221,27 @@ function pickUnsyncedNew(
 const syncChains = new Map<string, Promise<void>>();
 
 /**
+ * একই পেজ-সেশনে প্রতি পরিচয়ের জন্য হাইড্রেট **একবারই**।
+ *
+ * কেন: প্রশ্নব্যাংক/পরীক্ষার রিভিউতে একসাথে ২০০টি কার্ড পর্যন্ত থাকে, আর
+ * প্রতিটি কার্ডে একটা BookmarkButton বসে। প্রতিটি বাটন নিজে নিজে সিঙ্ক
+ * ডাকলে ২০০টি সার্ভার-কল চলে যেত — তাই সিদ্ধান্তটা মডিউল-স্তরে রাখা হলো।
+ * হাইড্রেট শেষে store নিজেই "storage" ইভেন্ট দেয়, ফলে সব বাটন নিজেরাই
+ * হালনাগাদ হয়ে যায়।
+ */
+const hydratedIds = new Set<string>();
+
+export function ensureMistakeDataHydrated(studentId: string): void {
+  if (typeof window === "undefined" || !studentId) return;
+  if (hydratedIds.has(studentId)) return;
+  hydratedIds.add(studentId);
+  void syncStudentMistakeData(studentId).catch(() => {
+    // ব্যর্থ হলে দাগটা তুলে দিই — পরে আবার চেষ্টা করা যাবে
+    hydratedIds.delete(studentId);
+  });
+}
+
+/**
  * সার্ভার-হাইড্রেট: পূর্ণ mistakes/bookmarks নামিয়ে মেমোরি/ক্যাশ আপডেট করে;
  * অফলাইনে/সিঙ্ক-আগে জমা হওয়া নতুন আইটেমগুলো সার্ভারে আপলোড করে।
  * @returns পূর্ণ তালিকা; সেশন নেই/টেবিল নেই/ত্রুটি হলে null (localStorage-ই চলে)

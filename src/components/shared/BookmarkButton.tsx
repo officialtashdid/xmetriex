@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { Bookmark } from "lucide-react";
 import {
   toggleQuestionBookmark,
   isQuestionBookmarked,
-  syncStudentMistakeData
+  ensureMistakeDataHydrated
 } from "@/lib/mistake-bookmark-store";
 import { getLocalStudentUser } from "@/lib/student-auth";
 
@@ -31,8 +31,6 @@ export const BookmarkButton: React.FC<BookmarkButtonProps> = ({
 }) => {
   const [effectiveStudentId, setEffectiveStudentId] = useState(studentId || "");
   const [isSaved, setIsSaved] = useState(false);
-  // একবার হাইড্রেট করলেই যথেষ্ট — প্রতি storage ইভেন্টে সার্ভার কল হবে না
-  const hydratedIdRef = useRef<string>("");
 
   useEffect(() => {
     const computeActiveId = (): string => {
@@ -62,17 +60,11 @@ export const BookmarkButton: React.FC<BookmarkButtonProps> = ({
       setIsSaved(isQuestionBookmarked(id, question.q));
 
       // Cross-device sync: Google-লগ-ইন থাকলে অন্য ডিভাইসের বুকমার্ক নামিয়ে
-      // আনুন (গেস্ট/লগ-ইন-বিহীন অবস্থায় সার্ভার কল হয় না — নীরব fail)।
-      const localUser = getLocalStudentUser();
-      if (
-        !skipHydrate &&
-        localUser &&
-        hydratedIdRef.current !== id
-      ) {
-        hydratedIdRef.current = id;
-        syncStudentMistakeData(id)
-          .then(() => setIsSaved(isQuestionBookmarked(id, question.q)))
-          .catch(() => {});
+      // আনি (গেস্ট/লগ-ইন-বিহীন অবস্থায় সার্ভার কল হয় না — নীরব fail)।
+      // PERF: পেজে অনেক বাটন থাকতে পারে — হাইড্রেট সেশনে একবারই চলে; শেষ হলে
+      // store "storage" ইভেন্ট দেয়, তাতেই সব বাটন নিজেরাই হালনাগাদ হয়।
+      if (!skipHydrate && getLocalStudentUser()) {
+        ensureMistakeDataHydrated(id);
       }
     };
 
