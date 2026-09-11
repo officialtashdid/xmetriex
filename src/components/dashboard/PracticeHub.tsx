@@ -15,7 +15,7 @@ import {
   RotateCcw,
   BookOpen
 } from "lucide-react";
-import { getPracticeTopics } from "@/actions/practice-actions";
+import { getPracticeTopics, getPracticeQuestions } from "@/actions/practice-actions";
 import { verifyTeacherSession } from "@/actions/admin-actions";
 import { getLocalStudentUser, loginWithGoogle } from "@/lib/student-auth";
 import type { TopicOption } from "@/lib/practice-helper";
@@ -58,6 +58,8 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
   const [practiceMode, setPracticeMode] = useState<"instant" | "exam">("instant");
   const [isStarting, setIsStarting] = useState(false);
   const detailRef = useRef<HTMLDivElement | null>(null);
+  // টপিক-লোড করার সময় যেই পরিচয়ে অ্যাক্সেস মিলেছে — সেটাই পরে প্রি-ফেচে ব্যবহার করি
+  const identityRef = useRef<{ id: string; email: string }>({ id: "", email: "" });
 
   const tree = useMemo(() => buildTopicGroupTree(topics || []), [topics]);
   const countMap = useMemo(() => buildTopicCountMap(tree), [tree]);
@@ -65,6 +67,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
   const hasNested = useMemo(() => tree.some((n) => n.children.length > 0), [tree]);
 
   const loadTopics = async (id: string, email: string) => {
+    identityRef.current = { id, email };
     try {
       const t = await getPracticeTopics(id, email);
       setTopics(t || []);
@@ -88,19 +91,22 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
       }
       setAccessError("");
       try {
-        const teacher = await verifyTeacherSession();
+        // PERF: শিক্ষক-যাচাই আর এনরোলমেন্ট-ক্যাশ — দুটোই কখনো সার্ভার-কল হয়,
+        // তাই একসাথে চালাই। আগে সিরিয়ালে বসত, ফলে হাব খুলতে দুটো রাউন্ড-ট্রিপ
+        // পিছনে পিছনে লাগত (~৪০০ms শুধু অপেক্ষা)।
+        const { checkEnrollmentCached } = await import("@/lib/access-cache");
+        const [teacher, g] = await Promise.all([
+          verifyTeacherSession(),
+          checkEnrollmentCached(u.uid, u.email)
+        ]);
         if (teacher.ok) {
           if (!cancelled) await loadTopics(u.uid, u.email || "");
           return;
         }
-        const { checkEnrollmentCached } = await import("@/lib/access-cache");
-        let allowed = false;
+        let allowed = g.allowed;
         let effId = u.uid;
         let effEmail = u.email || "";
-        const g = await checkEnrollmentCached(u.uid, u.email);
-        if (g.allowed) {
-          allowed = true;
-        } else {
+        if (!allowed) {
           const { getVerifiedStudent } = await import("@/lib/student-identity");
           const verified = getVerifiedStudent();
           if (verified && verified.id && verified.id !== u.uid) {
@@ -188,6 +194,15 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
     });
     if (typeof window !== "undefined") {
       setIsStarting(true);
+      // PERF: নতুন ট্যাব খোলার সাথে সাথেই সার্ভারে প্রশ্ন প্রস্তুত করা শুরু করি —
+      // ট্যাব লোড হয়ে যখন চাইবে, পুল প্রায় তৈরি (৬০ সেকেন্ডের ক্যাশে) থাকবে,
+      // তাই "প্রশ্ন প্রস্তুত হচ্ছে..." স্ক্রিন প্রায় চোখেই পড়বে না।
+      void getPracticeQuestions(
+        selectedTopic,
+        selectedCount,
+        identityRef.current.id,
+        identityRef.current.email
+      ).catch(() => {});
       window.open(`/practice/session?${params.toString()}`, "_blank", "noopener,noreferrer");
       setTimeout(() => setIsStarting(false), 800);
     }
