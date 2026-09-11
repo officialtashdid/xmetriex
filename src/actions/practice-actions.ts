@@ -13,7 +13,19 @@ import type { Exam } from "@/types/exam";
  * actually starts — the home page stays light.
  */
 
+// টপিক-তালিকার ছোট মেমো-ক্যাশ (প্রতি সার্ভার instance-এ; ৯০ সেকেন্ড)
+const PRACTICE_TOPICS_TTL_MS = 90 * 1000;
+const practiceTopicsCache = new Map<string, { at: number; data: TopicOption[] }>();
+
 export async function getPracticeTopics(studentId?: string, email?: string): Promise<TopicOption[]> {
+  // PERF: টপিক-তালিকা/কাউন্ট প্রতি ভিজিটে পুরো topic_questions + links স্ক্যান
+  // করত। ছোট TTL cache (instance-স্তর) রাখলে পরপর খোলায় সাথে সাথে আসে।
+  const cacheKey = `${String(studentId || "").trim()}|${String(email || "").trim().toLowerCase()}`;
+  const cached = practiceTopicsCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < PRACTICE_TOPICS_TTL_MS) {
+    return cached.data;
+  }
+
   try {
     const { isTeacherSession } = await import("@/lib/teacher-auth");
     const isTeacher = await isTeacherSession();
@@ -73,9 +85,11 @@ export async function getPracticeTopics(studentId?: string, email?: string): Pro
     });
 
     // 2. Count from permanent topicQuestions repository (visible rows only)
+    //    PERF: unbounded select নয় — বড় DB-তে স্ক্যান সীমিত (৫০০০)
     const { data: topicQuestions } = await supabase
       .from("topic_questions")
-      .select("topic, q, exam_key");
+      .select("topic, q, exam_key")
+      .limit(5000);
     const mirroredKeys = new Set<string>();
     (topicQuestions || []).forEach((tq: any) => {
       const t = String(tq.topic || "").trim();
@@ -85,9 +99,11 @@ export async function getPracticeTopics(studentId?: string, email?: string): Pro
     });
 
     // 3. Count exam-linked questions (excluding already-mirrored), visible only
+    //    PERF: unbounded select নয় — সীমিত (৫০০০)
     const { data: links } = await supabase
       .from("exam_questions_link")
-      .select("exam_id, question_bank(topic, q)");
+      .select("exam_id, question_bank(topic, q)")
+      .limit(5000);
 
     (links || []).forEach((link: any) => {
       const q = link.question_bank?.q;
@@ -106,9 +122,12 @@ export async function getPracticeTopics(studentId?: string, email?: string): Pro
       // নিবন্ধিত সব টপিকই দেখানো হয় (০-কাউন্টও) — যাতে কেউ কোনো টপিক "হারিয়ে" না ফেলে
       result.push({ name, count });
     });
-    return result.sort((a, b) =>
+    const sorted = result.sort((a, b) =>
       b.count !== a.count ? b.count - a.count : a.name.localeCompare(b.name, "bn")
     );
+    // PERF: পরের ভিজিটে সাথে সাথে দিতে ছোট cache-এ রাখি
+    practiceTopicsCache.set(cacheKey, { at: Date.now(), data: sorted });
+    return sorted;
   } catch (err) {
     console.error("Get practice topics error:", err);
     return [];
@@ -172,9 +191,10 @@ export async function getPracticeQuestions(
     // practice every course's questions; only answer-locked scheduled exams
     // (results not yet published) are excluded.
     const { isAnswerTimeReached } = await import("@/lib/bangladesh-time");
+    // PERF: exams একবারই আনি (subject/title সহ) — আগে দুবার আলাদা কোয়েরি হতো
     const { data: allExams } = await supabase
       .from("exams")
-      .select("id, course, start_time, end_time, leaderboard_end_time, is_result_published");
+      .select("id, course, subject, title, start_time, end_time, leaderboard_end_time, is_result_published");
 
     const lockedExamIds = new Set<string>();
     const accessibleExamIds = new Set<string>();
@@ -194,9 +214,17 @@ export async function getPracticeQuestions(
 
     // 1. Persistent Topic Questions repository (skip questions mirrored from
     //    answer-locked exams or from exams of courses the student is not in).
-    const { data: topicQuestions } = await supabase
+    //    PERF: নির্দিষ্ট টপিক বাছলে সার্ভার-সাইডেই coarse filter (ilike) — পুরো
+    //    টেবিল নামিয়ে JS-এ ফিল্টার করা বন্ধ। পরে isTopicMatch দিয়ে নির্ভুল করা হয়।
+    const topicLikePattern = isAll ? "" : `%${selectedTopic.trim()}%`;
+    let tqQuery = supabase
       .from("topic_questions")
-      .select("id, topic, q, opts, correct, exp, original_subject, original_course, original_exam_title, exam_key");
+      .select("id, topic, q, opts, correct, exp, original_subject, original_course, original_exam_title, exam_key")
+      .limit(2000);
+    if (topicLikePattern) {
+      tqQuery = tqQuery.ilike("topic", topicLikePattern);
+    }
+    const { data: topicQuestions } = await tqQuery;
 
     (topicQuestions || []).forEach((tq: any, idx: number) => {
       const matchTopic = isAll || isTopicMatch(tq.topic);
@@ -219,13 +247,16 @@ export async function getPracticeQuestions(
 
     // 2. Exam questions with the matching topic — only from accessible exams
     //    whose answers are released (always-open practice exams are fine).
-    const { data: examDataList } = await supabase
-      .from("exams")
-      .select("id, subject, course, title");
-
-    const { data: links } = await supabase
+    //    PERF: exams আগেই আনা হয়েছে (allExams); links-এ nested !inner join দিয়ে
+    //    সার্ভার-সাইডেই টপিক-ফিল্টার — সব exam-প্রশ্ন নামানো বন্ধ।
+    let linkQuery = supabase
       .from("exam_questions_link")
-      .select("exam_id, order_index, question_bank(id, q, opts, topic, correct, exp)");
+      .select("exam_id, order_index, question_bank!inner(id, q, opts, topic, correct, exp)")
+      .limit(3000);
+    if (topicLikePattern) {
+      linkQuery = linkQuery.ilike("question_bank.topic", topicLikePattern);
+    }
+    const { data: links } = await linkQuery;
 
     const byExam: Record<string, any[]> = {};
     (links || []).forEach((link: any) => {
@@ -233,7 +264,7 @@ export async function getPracticeQuestions(
       byExam[link.exam_id].push(link);
     });
 
-    for (const ex of examDataList || []) {
+    for (const ex of allExams || []) {
       if (lockedExamIds.has(ex.id)) continue;
       if (!accessibleExamIds.has(ex.id)) continue;
 

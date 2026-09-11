@@ -3,7 +3,7 @@
 import { supabase } from "@/lib/supabase";
 import { AllowedStudent } from "@/types/student";
 import { Submission } from "@/types/submission";
-import { Exam } from "@/types/exam";
+import { Exam, QuestionSolution } from "@/types/exam";
 import { parseBengaliDigits } from "@/lib/utils";
 import { getExamSolutions } from "@/actions/exam-actions";
 import { getTrueDate } from "@/lib/bangladesh-time";
@@ -33,27 +33,36 @@ export async function verifyStudentAccess(
     let matchedStudent: AllowedStudent | null = null;
 
     // 1. Direct match by raw ID, normalized ID or email (Google users are keyed by email too)
+    //    ডুপ্লিকেট-সহনশীল: একাধিক রো মিললে maybeSingle() ব্যর্থ হয়ে "এনরোল নেই"
+    //    দেখাত — তাই তালিকা এনে এমন রো বাছি যাতে অন্তত একটি কোর্স আছে (থাকলে)।
     const emailFilter = safeEmail ? `,email.eq.${safeEmail}` : "";
-    const { data: student } = await supabase
+    const { data: directRows } = await supabase
       .from("allowed_students")
-      .select("*")
+      .select("id, name, courses")
       .or(`id.eq.${safeId},id.eq.${safeNormId}${emailFilter}`)
-      .maybeSingle();
+      .limit(5);
 
-    if (student) {
-      matchedStudent = {
-        id: student.id,
-        name: student.name,
-        courses: student.courses
-      };
+    // সবচেয়ে ভালো (কোর্সসহ) সরাসরি-মিল ধরিয়ে রাখি; খালি-কোর্স রো হলে সেটাও
+    // রাখি যাতে fallback-এ এনরোল্ড রেকর্ড না পেলে অন্তত সঠিক বার্তা দেখানো যায়।
+    let directCandidate: AllowedStudent | null = null;
+    if (directRows && directRows.length > 0) {
+      const withCourses = directRows.find(
+        (r: any) => Array.isArray(r.courses) && r.courses.length > 0
+      );
+      const pick = withCourses || directRows[0];
+      directCandidate = { id: pick.id, name: pick.name, courses: pick.courses };
+      if (withCourses) matchedStudent = directCandidate;
     }
 
     // 2. Collection search fallback for endsWith matching — deterministic:
     //    exact matches win; a suffix match is only accepted when unique.
+    //    ALSO: সরাসরি-মিল খালি-কোর্স হলে (এনরোল করা শিক্ষার্থী অন্য আইডি/ইমেইলে
+    //    থাকতে পারে) এখানেও এনরোল্ড রেকর্ড খুঁজি — নাহলে ভুলে "এনরোল নেই" দেখাত।
     if (!matchedStudent) {
+      // PERF: শুধু দরকারি কলাম (পুরো রো নয়)
       const { data: allStudents } = await supabase
         .from("allowed_students")
-        .select("*");
+        .select("id, name, courses, email");
 
       const suffixMatches: AllowedStudent[] = [];
       (allStudents || []).forEach((d) => {
@@ -67,12 +76,14 @@ export async function verifyStudentAccess(
           docNormSid === safeNormId ||
           emailMatches
         ) {
-          // Exact match — take it and stop scanning
-          matchedStudent = {
-            id: d.id,
-            name: d.name,
-            courses: d.courses
-          };
+          // হুবহু মিল — তবে কোর্সসহ রেকর্ড থাকলে সেটাই আগে নিই (খালি-কোর্স
+          // auto-registered রো যেন এনরোল্ড রেকর্ডকে ঢেকে না ফেলে)
+          const asStudent = { id: d.id, name: d.name, courses: d.courses };
+          if (Array.isArray(d.courses) && d.courses.length > 0) {
+            matchedStudent = asStudent;
+            return;
+          }
+          if (!matchedStudent) matchedStudent = asStudent;
           return;
         }
 
@@ -91,6 +102,12 @@ export async function verifyStudentAccess(
       if (!matchedStudent && suffixMatches.length === 1) {
         matchedStudent = suffixMatches[0];
       }
+    }
+
+    // কোনো এনরোল্ড রেকর্ড না মিললে সরাসরি-মিলিত (খালি-কোর্স) রো-ই ব্যবহার করি —
+    // তখন "কোনো কোর্সে এনরোল করেননি" বার্তাটাই সঠিক হয়।
+    if (!matchedStudent && directCandidate) {
+      matchedStudent = directCandidate;
     }
 
     if (!matchedStudent) {
@@ -168,11 +185,15 @@ export async function getStudentSubmissions(studentId: string): Promise<Submissi
     const ids = Array.from(new Set([cleanId, normId])).filter(Boolean);
     if (ids.length === 0) return [];
 
+    // PERF: শুধু দরকারি কলাম + সর্বোচ্চ ২০০টি সাম্প্রতিক submission (পুরো টেবিল নয়)
     const { data, error } = await supabase
       .from("submissions")
-      .select("*")
+      .select(
+        "id, student_name, student_id, exam_key, exam_title, score, correct, incorrect, total_questions, time_spent, answers, is_pending_evaluation, is_live_submission, submitted_at"
+      )
       .in("student_id", ids)
-      .order("submitted_at", { ascending: false });
+      .order("submitted_at", { ascending: false })
+      .limit(200);
 
     if (error) throw error;
 
@@ -197,32 +218,51 @@ export async function getStudentSubmissions(studentId: string): Promise<Submissi
 
     const { isAnswerTimeReached } = await import("@/lib/bangladesh-time");
 
-    // Fetch exams info for evaluating only released/completed exams
-    const { data: examDataList } = await supabase.from("exams").select("*");
+    // PERF: সব exam `select("*")` না করে কেবল এই submission-গুলোর exam-গুলো,
+    // আর শুধু দরকারি কলাম — পুরো exams টেবিল স্ক্যান বন্ধ।
+    const examKeys = Array.from(new Set(subs.map((s) => s.examKey).filter(Boolean)));
     const examsMap: Record<string, any> = {};
-    (examDataList || []).forEach((ex) => {
-      examsMap[ex.id] = {
-        id: ex.id,
-        course: ex.course,
-        subject: ex.subject,
-        title: ex.title,
-        timerMinutes: ex.timer_minutes,
-        isFree: ex.is_free,
-        passMark: Number(ex.pass_mark),
-        startTime: ex.start_time,
-        endTime: ex.end_time,
-        isResultPublished: ex.is_result_published,
-        leaderboardStartTime: ex.leaderboard_start_time,
-        leaderboardEndTime: ex.leaderboard_end_time
-      };
-    });
+    if (examKeys.length > 0) {
+      const { data: examDataList } = await supabase
+        .from("exams")
+        .select(
+          "id, course, subject, title, timer_minutes, is_free, pass_mark, start_time, end_time, is_result_published, leaderboard_start_time, leaderboard_end_time"
+        )
+        .in("id", examKeys);
+      (examDataList || []).forEach((ex) => {
+        examsMap[ex.id] = {
+          id: ex.id,
+          course: ex.course,
+          subject: ex.subject,
+          title: ex.title,
+          timerMinutes: ex.timer_minutes,
+          isFree: ex.is_free,
+          passMark: Number(ex.pass_mark),
+          startTime: ex.start_time,
+          endTime: ex.end_time,
+          isResultPublished: ex.is_result_published,
+          leaderboardStartTime: ex.leaderboard_start_time,
+          leaderboardEndTime: ex.leaderboard_end_time
+        };
+      });
+    }
+
+    // PERF: pending মূল্যায়ন — per-exam solutions একবারই আনি (cache), আর সব
+    // UPDATE একসাথে (Promise.all) চালাই — আগে ছিল ক্রমিক N×query + N×update।
+    const solutionsCache = new Map<string, Promise<QuestionSolution[] | null>>();
+    const evaluateJobs: Promise<unknown>[] = [];
 
     for (const s of subs) {
       const examObj = examsMap[s.examKey];
       const isReleased = examObj ? isAnswerTimeReached(examObj) : true;
 
       if (isReleased && (s.isPendingEvaluation || s.score === undefined)) {
-        const solutions = await getExamSolutions(s.examKey);
+        let solutionsPromise = solutionsCache.get(s.examKey);
+        if (!solutionsPromise) {
+          solutionsPromise = getExamSolutions(s.examKey);
+          solutionsCache.set(s.examKey, solutionsPromise);
+        }
+        const solutions = await solutionsPromise;
         if (solutions && s.answers) {
           let cor = 0;
           let incor = 0;
@@ -238,24 +278,88 @@ export async function getStudentSubmissions(studentId: string): Promise<Submissi
           s.score = Math.max(0, cor - incor * 0.5);
           s.isPendingEvaluation = false;
 
-          // Update evaluated score in Supabase
-          await supabase
-            .from("submissions")
-            .update({
-              score: s.score,
-              correct: cor,
-              incorrect: incor,
-              is_pending_evaluation: false
-            })
-            .eq("id", s.id);
+          evaluateJobs.push(
+            Promise.resolve(
+              supabase
+                .from("submissions")
+                .update({
+                  score: s.score,
+                  correct: cor,
+                  incorrect: incor,
+                  is_pending_evaluation: false
+                })
+                .eq("id", s.id)
+            )
+          );
         }
       }
+    }
+
+    if (evaluateJobs.length > 0) {
+      await Promise.allSettled(evaluateJobs);
     }
 
     return subs;
   } catch (err) {
     console.error("Fetch student submissions error:", err);
     return [];
+  }
+}
+
+/**
+ * পোর্টালের জন্য টার্গেটেড exam-মেটা — শুধু এই শিক্ষার্থীর যে পরীক্ষাগুলোতে
+ * submission আছে সেগুলোর meta (কোনো প্রশ্ন/topicJOIN নয়)। পুরো exams টেবিল
+ * টানার বদলে এতে ডেটা-ভলিউম অনেক কমে — পোর্টাল/ফলাফল দ্রুত খোলে।
+ */
+export async function getStudentExamMeta(rawStudentId: string): Promise<Record<string, Exam>> {
+  const cleanId = String(rawStudentId || "").trim();
+  const normId = parseBengaliDigits(cleanId).trim();
+  if (!cleanId) return {};
+
+  // SECURITY: নিজের রেকর্ড ছাড়া অন্য কারও exam-meta নয়
+  if (!(await sessionOwnsStudent(cleanId)) && !(await sessionOwnsStudent(normId))) return {};
+
+  try {
+    const ids = Array.from(new Set([cleanId, normId])).filter(Boolean);
+    const { data: subRows, error } = await supabase
+      .from("submissions")
+      .select("exam_key")
+      .in("student_id", ids)
+      .limit(500);
+    if (error) throw error;
+
+    const examKeys = Array.from(new Set((subRows || []).map((r) => r.exam_key).filter(Boolean)));
+    if (examKeys.length === 0) return {};
+
+    const { data, error: exErr } = await supabase
+      .from("exams")
+      .select(
+        "id, course, subject, title, timer_minutes, is_free, pass_mark, start_time, end_time, is_result_published, leaderboard_start_time, leaderboard_end_time"
+      )
+      .in("id", examKeys);
+    if (exErr) throw exErr;
+
+    const map: Record<string, Exam> = {};
+    (data || []).forEach((ex: any) => {
+      map[ex.id] = {
+        id: ex.id,
+        course: ex.course,
+        subject: ex.subject,
+        title: ex.title,
+        timerMinutes: ex.timer_minutes,
+        isFree: ex.is_free,
+        passMark: Number(ex.pass_mark),
+        startTime: ex.start_time,
+        endTime: ex.end_time,
+        isResultPublished: ex.is_result_published,
+        leaderboardStartTime: ex.leaderboard_start_time,
+        leaderboardEndTime: ex.leaderboard_end_time
+      };
+    });
+    return map;
+  } catch (err) {
+    console.error("Get student exam meta error:", err);
+    return {};
   }
 }
 
@@ -292,11 +396,32 @@ export async function syncStudentLogin(payload: {
     // SECURITY: only the logged-in session user may sync their own profile
     if (!(await sessionOwnsStudent(cleanId))) return { success: false };
 
-    const { data: existing } = await supabase
+    const cleanEmail = payload.email.trim().toLowerCase();
+
+    // গুরুত্বপূর্ণ: `.or(id,email).maybeSingle()` ব্যবহার করা যাবে না — একই
+    // শিক্ষার্থীর একাধিক রো মিলে গেলে (যেমন ফোন-আইডি রো + Google uid রো) কুয়েরি
+    // ambiguous হয়ে খালি ফেরে, আর তখন ভুল করে ডুপ্লিকেট রো তৈরি হয়ে
+    // verifyStudentAccess-ও ambiguous হয়ে যায় (ফলে "এনরোল নেই" দেখায়)।
+    // তাই id ও email আলাদা আলাদা দেখি; কোনোটা মিললেই নতুন রো তৈরি করি না।
+    let existing: { id: string; name: string; email: string; courses: string[] } | null = null;
+
+    const { data: byId } = await supabase
       .from("allowed_students")
       .select("id, name, email, courses")
-      .or(`id.eq.${cleanId},email.eq.${payload.email.trim()}`)
+      .eq("id", cleanId)
       .maybeSingle();
+    if (byId) {
+      existing = byId as { id: string; name: string; email: string; courses: string[] };
+    } else if (cleanEmail) {
+      const { data: byEmail } = await supabase
+        .from("allowed_students")
+        .select("id, name, email, courses")
+        .eq("email", cleanEmail)
+        .limit(1);
+      if (byEmail && byEmail.length > 0) {
+        existing = byEmail[0] as { id: string; name: string; email: string; courses: string[] };
+      }
+    }
 
     const now = getTrueDate().toISOString();
 

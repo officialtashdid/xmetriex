@@ -106,9 +106,21 @@ export async function fetchStudentMistakeData(
   if (ids.length === 0) return null;
 
   try {
+    // PERF: unbounded select নয় — সাম্প্রতিক ৫০০টি করে (UI-তে পেজ-পেজ দেখানো হয়,
+    // তাই পুরো টেবিল টানা বন্ধ; বড় DB-তে পোর্টাল খোলার সময় অনেক কমে)
     const [mRes, bRes] = await Promise.all([
-      supabase.from(TABLE_FOR.mistakes).select("*").in("student_id", ids).order("created_at", { ascending: false }),
-      supabase.from(TABLE_FOR.bookmarks).select("*").in("student_id", ids).order("created_at", { ascending: false })
+      supabase
+        .from(TABLE_FOR.mistakes)
+        .select("*")
+        .in("student_id", ids)
+        .order("created_at", { ascending: false })
+        .limit(500),
+      supabase
+        .from(TABLE_FOR.bookmarks)
+        .select("*")
+        .in("student_id", ids)
+        .order("created_at", { ascending: false })
+        .limit(500)
     ]);
     if (mRes.error || bRes.error) return null;
     return {

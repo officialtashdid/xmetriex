@@ -6,8 +6,7 @@ import { Submission, LeaderboardItem } from "@/types/submission";
 import { parseBangladeshDateTime, getTrueDate, LIVE_GRACE_MS } from "@/lib/bangladesh-time";
 import { parseTimeSpentToSeconds, parseBengaliDigits } from "@/lib/utils";
 
-export async function getExamSolutions(examKey: string): Promise<QuestionSolution[] | null> {
-  try {
+export async function getExamSolutions(examKey: string): Promise<QuestionSolution[] | null> {  try {
     // SECURITY: never leak the answer key to non-teachers until the exam's answer
     // release time. For SCHEDULED exams the key stays hidden BEFORE the exam starts
     // and while it runs (isAnswerTimeReached is false until endTime passes or the
@@ -64,6 +63,89 @@ export async function getExamSolutions(examKey: string): Promise<QuestionSolutio
     console.error("Error fetching solutions:", err);
   }
   return null;
+}
+
+/**
+ * একটিমাত্র পরীক্ষার ফলাফল-বিস্তারিত — এক কলেই exam-মেটা + প্রশ্ন + (রিলিজ হলে) উত্তর।
+ *
+ * শিক্ষার্থী কোনো score-এ ট্যাপ করলে আগে দুইটি আলাদা কল হতো
+ * (fetchExamWithQuestions + getExamSolutions), আর দুটোই প্রায় একই exams/links
+ * কোয়েরি করত। এখানে একটাই টার্গেটেড কল — শুধু ওই exam-এর ডেটা।
+ */
+export async function getExamResultBundle(examKey: string): Promise<{
+  exam: Exam;
+  questions: { id?: string; q: string; opts: string[]; topic?: string }[];
+  solutions: QuestionSolution[] | null;
+} | null> {
+  try {
+    const key = String(examKey || "").trim();
+    if (!key) return null;
+
+    // SECURITY: লগইন-সেশন থাকতে হবে (আগের fetchExamWithQuestions-এর মতোই)
+    const { getSessionUserFromCookies } = await import("@/lib/teacher-auth");
+    const sessionUser = await getSessionUserFromCookies();
+    if (!sessionUser) return null;
+
+    const { data: ex, error } = await supabase.from("exams").select("*").eq("id", key).maybeSingle();
+    if (error || !ex) return null;
+
+    const exam: Exam = {
+      id: ex.id,
+      course: ex.course,
+      subject: ex.subject,
+      title: ex.title,
+      timerMinutes: ex.timer_minutes,
+      isFree: ex.is_free,
+      passMark: Number(ex.pass_mark ?? 0),
+      startTime: ex.start_time,
+      endTime: ex.end_time,
+      isResultPublished: ex.is_result_published,
+      leaderboardStartTime: ex.leaderboard_start_time,
+      leaderboardEndTime: ex.leaderboard_end_time
+    };
+
+    // পেইড পরীক্ষায় এনরোলমেন্ট যাচাই (আগের নিয়ম অপরিবর্তিত)
+    if (ex.is_free !== true) {
+      const { verifyStudentAccess } = await import("@/actions/student-actions");
+      const access = await verifyStudentAccess(sessionUser.id, ex.course || "", sessionUser.email);
+      if (!access.allowed) return null;
+    }
+
+    // প্রশ্ন + উত্তর + ব্যাখ্যা — একটাই JOIN কোয়েরি (শুধু এই exam)
+    const { data: links } = await supabase
+      .from("exam_questions_link")
+      .select("order_index, question_bank(id, q, opts, topic, correct, exp)")
+      .eq("exam_id", key);
+
+    const sorted = (links || []).sort(
+      (a: any, b: any) => Number(a.order_index) - Number(b.order_index)
+    );
+
+    const questions = sorted.map((l: any) => ({
+      id: l.question_bank?.id,
+      q: l.question_bank?.q || "",
+      opts: l.question_bank?.opts || [],
+      topic: l.question_bank?.topic || undefined
+    }));
+
+    // উত্তর কী কেবল রিলিজের পরে (নিরাপত্তা অপরিবর্তিত)
+    const { isAnswerTimeReached } = await import("@/lib/bangladesh-time");
+    const { isTeacherSession } = await import("@/lib/teacher-auth");
+    const teacher = await isTeacherSession();
+    const released = teacher || isAnswerTimeReached(exam);
+
+    const solutions: QuestionSolution[] | null = released
+      ? sorted.map((l: any) => ({
+          correct: Number(l.question_bank?.correct ?? 0),
+          exp: l.question_bank?.exp || ""
+        }))
+      : null;
+
+    return { exam, questions, solutions };
+  } catch (err) {
+    console.error("getExamResultBundle error:", err);
+    return null;
+  }
 }
 
 export async function checkStudentAlreadySubmitted(

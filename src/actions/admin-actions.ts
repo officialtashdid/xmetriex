@@ -1757,6 +1757,56 @@ export async function fetchCourseNameList(): Promise<string[]> {
   }
 }
 
+/**
+ * শুধু drive লিংক (routine/syllabus) — app_settings-এর এক সারি পড়া।
+ * পোর্টালে exam-তালিকা আসে শিক্ষার্থীর নিজের exam-মেটা থেকে (getStudentExamMeta),
+ * তাই এখানে কোনো exam প্রশ্ন/JOIN লাগে না।
+ */
+export async function fetchDriveLinks(): Promise<{ driveRoutineUrl: string; driveSyllabusUrl: string }> {
+  try {
+    const { data } = await supabase
+      .from("app_settings")
+      .select("drive_routine_url, drive_syllabus_url")
+      .eq("id", "main")
+      .maybeSingle();
+    return {
+      driveRoutineUrl: data?.drive_routine_url || DEFAULT_DATA.driveRoutineUrl,
+      driveSyllabusUrl: data?.drive_syllabus_url || DEFAULT_DATA.driveSyllabusUrl
+    };
+  } catch {
+    return { driveRoutineUrl: "", driveSyllabusUrl: "" };
+  }
+}
+
+/**
+ * পোর্টাল/ফলাফল পেজের জন্য হালকা ডেটা — শুধু exam-মেটা + drive লিংক।
+ * `fetchAppConfigLite` ভারী (exam_questions_link JOIN + topic_questions টানে);
+ * পোর্টালে প্রশ্ন/Topic লাগে না, তাই এতে স্ক্যান অনেক কমে।
+ */
+export async function fetchPortalLite(): Promise<{
+  exams: Record<string, Exam>;
+  driveRoutineUrl: string;
+  driveSyllabusUrl: string;
+}> {
+  try {
+    const [exams, settingsRes] = await Promise.all([
+      fetchExamMetaList(),
+      supabase
+        .from("app_settings")
+        .select("drive_routine_url, drive_syllabus_url")
+        .eq("id", "main")
+        .maybeSingle()
+    ]);
+    return {
+      exams,
+      driveRoutineUrl: settingsRes?.data?.drive_routine_url || DEFAULT_DATA.driveRoutineUrl,
+      driveSyllabusUrl: settingsRes?.data?.drive_syllabus_url || DEFAULT_DATA.driveSyllabusUrl
+    };
+  } catch {
+    return { exams: {}, driveRoutineUrl: "", driveSyllabusUrl: "" };
+  }
+}
+
 // ─── Topic hierarchy management ─────────────────────────────────────────────
 const TOPIC_PATH_SEP = " > ";
 
