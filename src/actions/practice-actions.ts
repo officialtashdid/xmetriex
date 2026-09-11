@@ -17,6 +17,26 @@ import type { Exam } from "@/types/exam";
 const PRACTICE_TOPICS_TTL_MS = 90 * 1000;
 const practiceTopicsCache = new Map<string, { at: number; data: TopicOption[] }>();
 
+// প্র্যাকটিস-পুলের ছোট মেমো-ক্যাশ: একই টপিকে ("আবার শুরু" বা পুনরায় ঢুকলে)
+// ডাটাবেস আবার স্ক্যান না করে সাথে সাথে প্রশ্ন দেয়। কী-তে স্টুডেন্ট আইডি/ইমেইল
+// থাকে, তাই একজনের ক্যাশ কখনো অন্যের কাছে যায় না — আর এনরোলমেন্ট যাচাই
+// ক্যাশের **আগেই** হয়, ফলে অননুমোদিত কেউ ক্যাশ থেকে কিছু পায় না।
+const PRACTICE_POOL_TTL_MS = 60 * 1000;
+const PRACTICE_POOL_CACHE_MAX = 300;
+const practicePoolCache = new Map<string, { at: number; data: PracticeQuestion[] }>();
+
+/** পুল থেকে চূড়ান্ত তালিকা: সীমিত মোডে শাফল করে কেটে দিই, "সব প্রশ্ন" মোডে পুরোটা। */
+function finalizePool(list: PracticeQuestion[], unlimited: boolean, requestedCount: number): PracticeQuestion[] {
+  const copy = list.slice();
+  if (unlimited) return copy;
+  // Fisher-Yates shuffle (আগের মতোই) — কুইজ/সীমিত মোডে এলোমেলো
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, requestedCount);
+}
+
 export async function getPracticeTopics(studentId?: string, email?: string): Promise<TopicOption[]> {
   // PERF: টপিক-তালিকা/কাউন্ট প্রতি ভিজিটে পুরো topic_questions + links স্ক্যান
   // করত। ছোট TTL cache (instance-স্তর) রাখলে পরপর খোলায় সাথে সাথে আসে।
@@ -28,30 +48,43 @@ export async function getPracticeTopics(studentId?: string, email?: string): Pro
 
   try {
     const { isTeacherSession } = await import("@/lib/teacher-auth");
-    const isTeacher = await isTeacherSession();
     const norm = (s: string) => String(s || "").trim().toLowerCase();
     const cleanId = String(studentId || "").trim();
+
+    // PERF: আগে এই ৬টি ধাপ একটার পর একটা চলত — মাপা গেছে মোট ~১.৫ সেকেন্ড
+    // শুধু রাউন্ড-ট্রিপেই যেত (auth.getUser ~২১০ms + ৫টি DB কোয়েরি সিরিয়াল)।
+    // সবগুলো স্বাধীন, তাই একসাথে ছুড়ে দিই; শেষে আগের মতোই একই নিয়মে ফিল্টার
+    // করি — ফলাফল হুবহু অপরিবর্তিত, শুধু অপেক্ষা sum → max হয়ে যায়।
+    const accessPromise = cleanId
+      ? import("@/actions/student-actions").then((m) => m.verifyStudentAccess(cleanId, "ALL", email))
+      : Promise.resolve(null);
+
+    const [isTeacher, access, settingsRes, topicQuestionsRes, linksRes, examsRes] = await Promise.all([
+      isTeacherSession(),
+      accessPromise,
+      supabase.from("app_settings").select("topics").eq("id", "main").maybeSingle(),
+      supabase.from("topic_questions").select("topic, q, exam_key").limit(5000),
+      supabase.from("exam_questions_link").select("exam_id, question_bank(topic, q)").limit(5000),
+      supabase
+        .from("exams")
+        .select("id, course, start_time, end_time, leaderboard_end_time, is_result_published")
+    ]);
 
     // স্টুডেন্ট হলে: কোন কোন পরীক্ষা দেখতে পারে (কোর্স) আর কোনগুলো লক করা —
     // কাউন্ট যেন fetch-এর সাথে মিলে যায় (অন্যথায় "১০টা দেখায়, খুললে খালি")।
     let accessibleExamIds: Set<string> | null = null;
-    let lockedExamIds = new Set<string>();
+    const lockedExamIds = new Set<string>();
 
     if (!isTeacher && cleanId) {
-      const { verifyStudentAccess } = await import("@/actions/student-actions");
-      const access = await verifyStudentAccess(cleanId, "ALL", email);
-      if (!access.allowed) return [];
+      if (!access || !access.allowed) return [];
 
       // নিয়ম: যেকোনো একটি কোর্সে এনরোল্ড থাকলেই সব কোর্সের প্রশ্নব্যাংক/
       // প্র্যাকটিস অ্যাক্সেসযোগ্য — কোর্স-স্কোপ ফিল্টার আর নেই। শুধু যেসব
       // নির্ধারিত (লাইভ) পরীক্ষার উত্তর এখনো প্রকাশিত নয় সেগুলো লক থাকে
       // (কাউন্ট fetch-এর সাথে মিলে যায় — "১০টা দেখায়, খুললে খালি" নয়)।
       const { isAnswerTimeReached } = await import("@/lib/bangladesh-time");
-      const { data: allExams } = await supabase
-        .from("exams")
-        .select("id, course, start_time, end_time, leaderboard_end_time, is_result_published");
       accessibleExamIds = new Set<string>();
-      (allExams || []).forEach((ex: any) => {
+      (examsRes.data || []).forEach((ex: any) => {
         const examObj = {
           startTime: ex.start_time,
           endTime: ex.end_time,
@@ -75,24 +108,17 @@ export async function getPracticeTopics(studentId?: string, email?: string): Pro
 
     const topicCountMap = new Map<string, number>();
 
-    // 1. Registered topic list in app_settings
-    const { data: settings } = await supabase
-      .from("app_settings")
-      .select("topics")
-      .eq("id", "main")
-      .maybeSingle();
-    const registered: string[] = settings?.topics || [];
+    // 1. Registered topic list in app_settings (উপরের Promise.all-এ একসাথে আনা)
+    const registered: string[] = settingsRes.data?.topics || [];
     registered.forEach((t) => {
       const trimmed = String(t || "").trim();
       if (trimmed && !topicCountMap.has(trimmed)) topicCountMap.set(trimmed, 0);
     });
 
     // 2. Count from permanent topicQuestions repository (visible rows only)
-    //    PERF: unbounded select নয় — বড় DB-তে স্ক্যান সীমিত (৫০০০)
-    const { data: topicQuestions } = await supabase
-      .from("topic_questions")
-      .select("topic, q, exam_key")
-      .limit(5000);
+    //    PERF: unbounded select নয় — বড় DB-তে স্ক্যান সীমিত (৫০০০); উপরে
+    //    একসাথে আনা হয়েছে (আর আলাদা রাউন্ড-ট্রিপ নেই)
+    const topicQuestions = topicQuestionsRes.data;
     const mirroredKeys = new Set<string>();
     (topicQuestions || []).forEach((tq: any) => {
       const t = String(tq.topic || "").trim();
@@ -102,11 +128,8 @@ export async function getPracticeTopics(studentId?: string, email?: string): Pro
     });
 
     // 3. Count exam-linked questions (excluding already-mirrored), visible only
-    //    PERF: unbounded select নয় — সীমিত (৫০০০)
-    const { data: links } = await supabase
-      .from("exam_questions_link")
-      .select("exam_id, question_bank(topic, q)")
-      .limit(5000);
+    //    PERF: unbounded select নয় — সীমিত (৫০০০); উপরে একসাথে আনা হয়েছে
+    const links = linksRes.data;
 
     (links || []).forEach((link: any) => {
       const q = link.question_bank?.q;
@@ -147,18 +170,20 @@ export async function getPracticeQuestions(
     // SECURITY: self-practice requires an enrolled student (ANY course) —
     // UNLESS the caller is a verified teacher (admins may browse the whole
     // bank, including not-yet-released exams — they are the content owners).
-    const { isTeacherSession } = await import("@/lib/teacher-auth");
-    const isTeacher = await isTeacherSession();
-
     const cleanId = String(studentId || "").trim();
-    let access: { allowed: boolean; courses?: string[] } | null = null;
-    if (isTeacher) {
-      access = { allowed: true, courses: ["all"] };
-    } else {
-      if (!cleanId) return [];
-      const { verifyStudentAccess } = await import("@/actions/student-actions");
-      access = await verifyStudentAccess(cleanId, "ALL", email);
-      if (!access.allowed) return [];
+
+    // PERF: auth.getUser (নেটওয়ার্ক, ~২১০ms) আর এনরোলমেন্ট-যাচাই (DB) একসাথে
+    // — আগে সিরিয়াল ছিল। শিক্ষক হলে যাচাইয়ের ফলাফল কেবল অবহেলা করা হয়।
+    const { isTeacherSession } = await import("@/lib/teacher-auth");
+    const [isTeacher, accessRes] = await Promise.all([
+      isTeacherSession(),
+      cleanId
+        ? import("@/actions/student-actions").then((m) => m.verifyStudentAccess(cleanId, "ALL", email))
+        : Promise.resolve(null)
+    ]);
+
+    if (!isTeacher) {
+      if (!cleanId || !accessRes || !accessRes.allowed) return [];
     }
 
     // count = 0 → "সব প্রশ্ন" (unlimited)। প্রশ্নব্যাংক রিডিং-এ সব প্রশ্ন দেখানোর
@@ -175,6 +200,14 @@ export async function getPracticeQuestions(
       selectedTopic === "সকল বিষয় (মিক্সড)" ||
       selectedTopic === "সকল টপিক (মিক্সড)";
 
+    // PERF: একই টপিক+সংখ্যায় আবার শুরু করলে ডাটাবেস না ছুঁয়ে সাথে সাথে দিই
+    // (এনরোলমেন্ট যাচাই উপরে হয়েই গেছে — ক্যাশে শুধু অনুমোদিতদের পুল থাকে)।
+    const poolCacheKey = `${cleanId}|${String(email || "").trim().toLowerCase()}|${isTeacher ? "t" : "s"}|${selectedTopic.trim()}|${unlimited ? "all" : requestedCount}`;
+    const cachedPool = practicePoolCache.get(poolCacheKey);
+    if (cachedPool && Date.now() - cachedPool.at < PRACTICE_POOL_TTL_MS) {
+      return finalizePool(cachedPool.data, unlimited, requestedCount);
+    }
+
     // Segment-boundary topic matching (not raw substring): selecting "বাংলা"
     // matches "বাংলা" and "বাংলা > প্রাচীন যুগ" (descendants) but NOT
     // "বাংলাদেশ বিষয়াবলী". Consistent with fetchTopicQuestionsForStudent.
@@ -190,14 +223,37 @@ export async function getPracticeQuestions(
       );
     };
 
+    // 1. Persistent Topic Questions repository (skip questions mirrored from
+    //    answer-locked exams or from exams of courses the student is not in).
+    //    PERF: নির্দিষ্ট টপিক বাছলে সার্ভার-সাইডেই coarse filter (ilike) — পুরো
+    //    টেবিল নামিয়ে JS-এ ফিল্টার করা বন্ধ। পরে isTopicMatch দিয়ে নির্ভুল করা হয়।
+    const topicLikePattern = isAll ? "" : `%${selectedTopic.trim()}%`;
+    let tqQuery = supabase
+      .from("topic_questions")
+      .select("id, topic, q, opts, correct, exp, original_subject, exam_key")
+      .limit(2000);
+    if (topicLikePattern) {
+      tqQuery = tqQuery.ilike("topic", topicLikePattern);
+    }
+
     // Build exam access/lock info: any enrolled student (ANY course) may
     // practice every course's questions; only answer-locked scheduled exams
     // (results not yet published) are excluded.
+    // PERF: exams + topic_questions + links — তিনটি স্বাধীন কোয়েরি একসাথে।
+    // আগে সিরিয়ালে ~৬৫০ms শুধু অপেক্ষায় যেত (এই দুই টেবিলের পেলোডই ভারী)।
+    const [examsRes, tqRes, linksRes] = await Promise.all([
+      supabase
+        .from("exams")
+        .select("id, course, subject, title, start_time, end_time, leaderboard_end_time, is_result_published"),
+      tqQuery,
+      supabase
+        .from("exam_questions_link")
+        .select("exam_id, order_index, question_bank!inner(id, q, opts, topic, correct, exp)")
+        .limit(3000)
+    ]);
+
     const { isAnswerTimeReached } = await import("@/lib/bangladesh-time");
-    // PERF: exams একবারই আনি (subject/title সহ) — আগে দুবার আলাদা কোয়েরি হতো
-    const { data: allExams } = await supabase
-      .from("exams")
-      .select("id, course, subject, title, start_time, end_time, leaderboard_end_time, is_result_published");
+    const allExams = examsRes.data;
 
     const lockedExamIds = new Set<string>();
     const accessibleExamIds = new Set<string>();
@@ -215,19 +271,8 @@ export async function getPracticeQuestions(
       accessibleExamIds.add(ex.id);
     });
 
-    // 1. Persistent Topic Questions repository (skip questions mirrored from
-    //    answer-locked exams or from exams of courses the student is not in).
-    //    PERF: নির্দিষ্ট টপিক বাছলে সার্ভার-সাইডেই coarse filter (ilike) — পুরো
-    //    টেবিল নামিয়ে JS-এ ফিল্টার করা বন্ধ। পরে isTopicMatch দিয়ে নির্ভুল করা হয়।
-    const topicLikePattern = isAll ? "" : `%${selectedTopic.trim()}%`;
-    let tqQuery = supabase
-      .from("topic_questions")
-      .select("id, topic, q, opts, correct, exp, original_subject, original_course, original_exam_title, exam_key")
-      .limit(2000);
-    if (topicLikePattern) {
-      tqQuery = tqQuery.ilike("topic", topicLikePattern);
-    }
-    const { data: topicQuestions } = await tqQuery;
+    // 1. Persistent Topic Questions repository — উপরের Promise.all-এ আনা হয়েছে
+    const topicQuestions = tqRes.data;
 
     (topicQuestions || []).forEach((tq: any, idx: number) => {
       const matchTopic = isAll || isTopicMatch(tq.topic);
@@ -251,13 +296,10 @@ export async function getPracticeQuestions(
 
     // 2. Exam questions with the matching topic — only from accessible exams
     //    whose answers are released (always-open practice exams are fine).
-    //    PERF: exams আগেই আনা হয়েছে (allExams)। মাপা গেছে — nested ilike ফিল্টার
+    //    PERF: উপরের Promise.all-এ একসাথে আনা। মাপা গেছে — nested ilike ফিল্টার
     //    (~462ms) সাধারণ join-এর (~236ms) চেয়ে ধীর, আর টেবিল ছোট (৫০০ লিংক) —
     //    তাই সাধারণ join-ই দ্রুত; JS-এ isTopicMatch দিয়ে নির্ভুল করা হয়।
-    const { data: links } = await supabase
-      .from("exam_questions_link")
-      .select("exam_id, order_index, question_bank!inner(id, q, opts, topic, correct, exp)")
-      .limit(3000);
+    const links = linksRes.data;
 
     const byExam: Record<string, any[]> = {};
     (links || []).forEach((link: any) => {
@@ -305,17 +347,17 @@ export async function getPracticeQuestions(
 
     const uniqueList = Array.from(uniqueMap.values());
 
-    if (!unlimited) {
-      // Fisher-Yates shuffle (same as before) — কুইজ/সীমিত মোডে এলোমেলো
-      for (let i = uniqueList.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [uniqueList[i], uniqueList[j]] = [uniqueList[j], uniqueList[i]];
-      }
-      return uniqueList.slice(0, requestedCount);
+    // PERF: পরের বার (একই টপিক+সংখ্যা) ডাটাবেস ছোঁয়া ছাড়াই দেওয়ার জন্য
+    // পুলটা ছোট TTL ক্যাশে রাখি — শাফল প্রতিবার নতুন করে হয়।
+    if (practicePoolCache.size >= PRACTICE_POOL_CACHE_MAX) {
+      const oldest = practicePoolCache.keys().next().value;
+      if (oldest) practicePoolCache.delete(oldest);
     }
+    practicePoolCache.set(poolCacheKey, { at: Date.now(), data: uniqueList });
 
-    // "সব প্রশ্ন" মোড (count=0): ডাটাবেস অর্ডারে সম্পূর্ণ তালিকা — পড়ার জন্য
-    return uniqueList;
+    // "সব প্রশ্ন" মোডে (count=0) ডাটাবেস অর্ডারে সম্পূর্ণ তালিকা — পড়ার জন্য;
+    // সীমিত মোডে শাফল করে কেটে দেওয়া (আগের আচরণ অপরিবর্তিত)।
+    return finalizePool(uniqueList, unlimited, requestedCount);
   } catch (err) {
     console.error("Get practice questions error:", err);
     return [];

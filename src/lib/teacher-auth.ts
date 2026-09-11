@@ -28,14 +28,39 @@ function getAccessTokenFromCookies(): string | null {
   }
 }
 
+/**
+ * PERF: `auth.getUser(token)` একটি **নেটওয়ার্ক রাউন্ড-ট্রিপ** (মাপা ~২১০ms)।
+ * প্র্যাকটিস/প্রশ্নব্যাংকের মতো ফ্লোতে একই রিকোয়েস্ট-সিরিজে ২-৩ বার ডাকা হতো
+ * (verifyTeacherSession → getPracticeTopics → getPracticeQuestions), তাই একই
+ * টোকেনের ফলাফল ৬০ সেকেন্ড মেমো করি। টোকেনই কী — লগআউট/রিফ্রেশে টোকেন বদলায়,
+ * ফলে ক্যাশ নিজে থেকেই আলাদা হয়ে যায়। ব্যর্থ/null ফল ক্যাশ করা হয় না, যাতে
+ * নেটওয়ার্ক ফিরে এলে সাথে সাথে কাজ করে।
+ */
+const AUTH_USER_TTL_MS = 60 * 1000;
+const AUTH_USER_CACHE_MAX = 200;
+/** Supabase auth.getUser() যেই ইউজার-অবজেক্ট দেয় (user_metadata/app_metadata সহ)। */
+type AuthUser = NonNullable<Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"]>;
+const authUserCache = new Map<string, { at: number; user: AuthUser }>();
+
 export async function getUserFromToken(token?: string | null) {
   if (!token) return null;
+
+  const hit = authUserCache.get(token);
+  if (hit && Date.now() - hit.at < AUTH_USER_TTL_MS) return hit.user;
+
   try {
     const { data, error } = await Promise.race([
       supabase.auth.getUser(token),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Auth timeout")), 4000))
     ]);
     if (error || !data.user) return null;
+
+    if (authUserCache.size >= AUTH_USER_CACHE_MAX) {
+      // সবচেয়ে পুরোনো এন্ট্রি ফেলে দিই (Map insertion-order)
+      const oldest = authUserCache.keys().next().value;
+      if (oldest) authUserCache.delete(oldest);
+    }
+    authUserCache.set(token, { at: Date.now(), user: data.user });
     return data.user;
   } catch {
     // timeout or network failure → treat as unauthenticated (never hang the UI)
