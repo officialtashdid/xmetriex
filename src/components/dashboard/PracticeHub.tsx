@@ -19,7 +19,7 @@ import { getPracticeTopics, getPracticeQuestions } from "@/actions/practice-acti
 import { verifyTeacherSession } from "@/actions/admin-actions";
 import { getLocalStudentUser, loginWithGoogle } from "@/lib/student-auth";
 import type { TopicOption } from "@/lib/practice-helper";
-import { buildTopicCountMap, buildTopicGroupTree, colorFor, type HubNode } from "@/lib/topic-group";
+import { buildTopicCountMap, buildTopicGroupTree, colorFor, pruneEmptyNodes, type HubNode } from "@/lib/topic-group";
 import { LoadingState } from "@/components/shared/LoadingState";
 import { toBengaliDigits } from "@/lib/utils";
 
@@ -61,7 +61,11 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
   // টপিক-লোড করার সময় যেই পরিচয়ে অ্যাক্সেস মিলেছে — সেটাই পরে প্রি-ফেচে ব্যবহার করি
   const identityRef = useRef<{ id: string; email: string }>({ id: "", email: "" });
 
-  const tree = useMemo(() => buildTopicGroupTree(topics || []), [topics]);
+  // ০-প্রশ্ন গ্রুপ বাদ — যা দেখা যায়, তাতে ট্যাপ করলে প্রশ্ন পাওয়া নিশ্চিত
+  // (আগে খালি গ্রুপে ঢুকে "প্রশ্ন নেই" দেখাত)।
+  const rawTree = useMemo(() => buildTopicGroupTree(topics || []), [topics]);
+  const tree = useMemo(() => pruneEmptyNodes(rawTree), [rawTree]);
+  const hiddenGroups = rawTree.length - tree.length;
   const countMap = useMemo(() => buildTopicCountMap(tree), [tree]);
   const totalCount = useMemo(() => tree.reduce((s, n) => s + n.count, 0), [tree]);
   const hasNested = useMemo(() => tree.some((n) => n.children.length > 0), [tree]);
@@ -386,7 +390,7 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
         </span>
       </div>
 
-      {topics.length === 0 ? (
+      {tree.length === 0 ? (
         <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 shadow-sm text-center space-y-3 font-bengali">
           <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-2xl mx-auto flex items-center justify-center">
             <BookOpen className="w-6 h-6" />
@@ -505,6 +509,17 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
                 );
               })}
             </div>
+
+            {/* খালি গ্রুপগুলো এখানে দেখানো হয় না (ট্যাপ করলে প্রশ্ন পাওয়া যায় না) */}
+            {hiddenGroups > 0 && (
+              <p className="text-[11px] sm:text-xs text-slate-400 font-semibold mt-4 leading-relaxed flex items-start gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
+                <span>
+                  আরও {toBengaliDigits(hiddenGroups)}টি টপিক-গ্রুপের প্রশ্ন এখনো প্রস্তুত হয়নি বা লাইভ পরীক্ষার উত্তর
+                  প্রকাশের অপেক্ষায় আছে — প্রস্তুত হলেই এখানে স্বয়ংক্রিয়ভাবে যুক্ত হবে।
+                </span>
+              </p>
+            )}
           </section>
 
           {/* ===== গ্রুপ ডিটেইল: সাব-টপিক তালিকা ===== */}
