@@ -64,10 +64,13 @@ export async function getPracticeTopics(studentId?: string, email?: string): Pro
       });
     }
 
-    // শিক্ষক / exam_key-বিহীন (স্থায়ী মিরর) → সব; স্টুডেন্ট → সব (কোর্স-নির্বিশেষে) কিন্তু লক-বিহীন
+    // শিক্ষক / exam_key-বিহীন (স্থায়ী মিরর) → সব; স্টুডেন্ট → সব (কোর্স-নির্বিশেষে) কিন্তু লক-বিহীন।
+    // মনে রাখো: যে exam আর নেই (ডিলিট করা) তার মিরর করা প্রশ্নগুলো আর্কাইভ — সেগুলো
+    // কখনো লক করা যায় না, নাহলে সেই টপিকগুলো শিক্ষার্থীর কাছে চিরতরে হারিয়ে যায়।
     const canSee = (examKey: string | null | undefined): boolean => {
       if (isTeacher || !examKey) return true;
-      return !!accessibleExamIds && accessibleExamIds.has(examKey) && !lockedExamIds.has(examKey);
+      if (!accessibleExamIds || !accessibleExamIds.has(examKey)) return true; // অজানা/ডিলিট exam
+      return !lockedExamIds.has(examKey);
     };
 
     const topicCountMap = new Map<string, number>();
@@ -229,8 +232,9 @@ export async function getPracticeQuestions(
     (topicQuestions || []).forEach((tq: any, idx: number) => {
       const matchTopic = isAll || isTopicMatch(tq.topic);
       if (tq.exam_key) {
+        // লক কেবল তখনই যখন exam এখনও আছে ও উত্তর রিলিজ হয়নি। যে exam ডিলিট হয়েছে
+        // তার প্রশ্ন আর্কাইভ — চিরতরে ব্লক করা যাবে না।
         if (lockedExamIds.has(tq.exam_key)) return;
-        if (!accessibleExamIds.has(tq.exam_key)) return;
       }
       if (matchTopic && tq.q && tq.opts && tq.opts.length >= 2) {
         pool.push({

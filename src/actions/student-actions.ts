@@ -65,25 +65,26 @@ export async function verifyStudentAccess(
         .select("id, name, courses, email");
 
       const suffixMatches: AllowedStudent[] = [];
+      let emptyExact: AllowedStudent | null = null;
+
       (allStudents || []).forEach((d) => {
         const docSid = String(d.id).trim();
         const docNormSid = parseBengaliDigits(docSid).trim();
         const docEmail = String(d.email || "").trim().toLowerCase();
         const emailMatches = safeEmail ? docEmail === safeEmail : false;
 
-        if (
-          docSid === safeId ||
-          docNormSid === safeNormId ||
-          emailMatches
-        ) {
-          // হুবহু মিল — তবে কোর্সসহ রেকর্ড থাকলে সেটাই আগে নিই (খালি-কোর্স
-          // auto-registered রো যেন এনরোল্ড রেকর্ডকে ঢেকে না ফেলে)
+        const isExact = docSid === safeId || docNormSid === safeNormId || emailMatches;
+
+        if (isExact) {
           const asStudent = { id: d.id, name: d.name, courses: d.courses };
+          // কোর্সসহ রেকর্ড পেলে সাথে সাথে নিই
           if (Array.isArray(d.courses) && d.courses.length > 0) {
             matchedStudent = asStudent;
             return;
           }
-          if (!matchedStudent) matchedStudent = asStudent;
+          // খালি-কোর্স মিল (auto-registered) — থেমে যাই না, হয়তো অন্য রেকর্ডে
+          // এনরোলমেন্ট আছে; কেবল স্মরণে রাখি
+          if (!emptyExact) emptyExact = asStudent;
           return;
         }
 
@@ -99,8 +100,12 @@ export async function verifyStudentAccess(
         }
       });
 
+      // কোর্সসহ কোনো রেকর্ড না মিললে তবেই খালি-কোর্স মিল বা suffix ব্যবহার
       if (!matchedStudent && suffixMatches.length === 1) {
         matchedStudent = suffixMatches[0];
+      }
+      if (!matchedStudent && emptyExact) {
+        matchedStudent = emptyExact;
       }
     }
 
