@@ -568,33 +568,37 @@ export const StudentDashboardModal: React.FC<StudentDashboardModalProps> = ({
                         <button
                           key={sIdx}
                           onClick={() => onSelectSubmissionDetail(sub)}
-                          className="w-full text-left p-3.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-violet-50/60 transition flex justify-between items-center group shadow-sm cursor-pointer"
+                          className="w-full text-left p-3.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-violet-50/60 transition shadow-sm cursor-pointer group"
                         >
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className="font-bold text-slate-900 text-xs sm:text-sm group-hover:text-violet-700 transition">
-                                {toBengaliDigits(sIdx + 1)}. {sub.examTitle}
-                              </h4>
-                              {sub.isLiveSubmission === false && (
-                                <span className="bg-amber-100 text-amber-900 text-xs font-bold px-2 py-0.5 rounded-md">
-                                  অনুশীলন
-                                </span>
-                              )}
+                          {/* মোবাইল-ফ্রেন্ডলি: উপরে শিরোনাম (wrap হয়), নিচে পুরো-প্রস্থ স্কোর */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-bold text-slate-900 text-xs sm:text-sm group-hover:text-violet-700 transition leading-snug">
+                                  {toBengaliDigits(sIdx + 1)}. {sub.examTitle}
+                                </h4>
+                                {sub.isLiveSubmission === false && (
+                                  <span className="bg-amber-100 text-amber-900 text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0">
+                                    অনুশীলন
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-500 mt-1 font-mono">সময়কাল: {sub.timeSpent}</p>
                             </div>
-                            <p className="text-sm text-slate-500 mt-0.5 font-mono">সময়কাল: {sub.timeSpent}</p>
+                            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-violet-600 transition shrink-0 mt-0.5" />
                           </div>
 
-                          <div className="flex items-center gap-3">
+                          <div className="mt-2.5">
                             {canShow ? (
-                              <span className="bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1 rounded-xl text-xs font-mono">
-                                স্কোর: {toBengaliDigits(sub.score)}
+                              <span className="flex items-center justify-between gap-2 bg-indigo-100 group-hover:bg-indigo-200 text-indigo-700 font-bold px-3 py-2 rounded-xl text-xs transition">
+                                <span className="truncate">স্কোর: {toBengaliDigits(sub.score)}</span>
+                                <span className="text-[10px] font-black text-indigo-600 shrink-0">ফলাফল দেখুন →</span>
                               </span>
                             ) : (
-                              <span className="flex items-center gap-1 text-sm text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
-                                <Lock className="w-3 h-3" /> ফলাফল প্রকাশের অপেক্ষায়
+                              <span className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-100 px-3 py-2 rounded-xl font-bold">
+                                <Lock className="w-3 h-3 shrink-0" /> ফলাফল প্রকাশের অপেক্ষায়
                               </span>
                             )}
-                            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-violet-600 transition" />
                           </div>
                         </button>
                       );

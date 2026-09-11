@@ -12,10 +12,13 @@ import {
   AlertOctagon,
   Bookmark,
   LogIn,
-  LogOut
+  LogOut,
+  User,
+  Pencil
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { getLocalStudentUser, loginWithGoogle, logoutStudentUser } from "@/lib/student-auth";
+import { getLocalStudentUser, loginWithGoogle, logoutStudentUser, updateLocalStudentName } from "@/lib/student-auth";
+import { updateStudentName } from "@/actions/student-actions";
 import { WhatsAppJoinPopup } from "@/components/dashboard/WhatsAppJoinPopup";
 
 /**
@@ -62,6 +65,10 @@ const SECTIONS = [
 export default function PortalPage() {
   const router = useRouter();
   const [googleUser, setGoogleUser] = useState<{ uid: string; name: string; photoURL?: string } | null>(null);
+  // নাম-পরিবর্তন — এখন পোর্টালে ঢুকতেই (overview পেজে) দেখা যায়
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [savingName, setSavingName] = useState(false);
 
   useEffect(() => {
     const isTeacherLoggedIn = sessionStorage.getItem("teacher_user");
@@ -70,8 +77,29 @@ export default function PortalPage() {
       router.replace("/admin");
       return;
     }
-    setGoogleUser(getLocalStudentUser());
+    const u = getLocalStudentUser();
+    setGoogleUser(u);
+    if (u) setNewName(u.name);
   }, [router]);
+
+  const handleSaveName = async () => {
+    if (!newName.trim() || !googleUser) return;
+    setSavingName(true);
+    try {
+      const ok = await updateStudentName(googleUser.uid, newName.trim());
+      if (ok) {
+        const updated = updateLocalStudentName(newName.trim());
+        setGoogleUser(updated || { ...googleUser, name: newName.trim() });
+        setEditingName(false);
+        alert("আপনার নাম সফলভাবে পরিবর্তন করা হয়েছে!");
+      } else {
+        alert("নাম পরিবর্তন করা যায়নি।");
+      }
+    } catch {
+      alert("নাম পরিবর্তন করা যায়নি।");
+    }
+    setSavingName(false);
+  };
 
   const handleGoogleLogin = async () => {
     try {
@@ -99,28 +127,31 @@ export default function PortalPage() {
       <Header onOpenStudentPortal={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
 
       <main className="flex-grow max-w-5xl w-full mx-auto p-3 sm:p-5 md:p-6 font-bengali space-y-5">
-        {/* Top banner */}
-        <div className="relative bg-gradient-to-tr from-slate-900 via-slate-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 text-center overflow-hidden shadow-sm border border-slate-800">
+        {/* Top banner — কম্প্যাক্ট (মোবাইলে ছোট, বড় লেখা নয়) */}
+        <div className="relative bg-gradient-to-tr from-slate-900 via-slate-900 to-indigo-950 text-white rounded-2xl p-3.5 sm:p-5 overflow-hidden shadow-sm border border-slate-800">
           <div className="absolute -top-10 -right-10 w-36 h-36 bg-indigo-400/10 rounded-full blur-xl pointer-events-none" />
           <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-indigo-400/10 rounded-full blur-lg pointer-events-none" />
 
-          <div className="relative inline-flex mb-3">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-400 to-indigo-400 p-0.5 shadow-lg">
-              <div className="w-full h-full bg-slate-900/90 rounded-[12px] flex items-center justify-center">
-                <Contact className="w-7 h-7 text-amber-300" />
+          <div className="relative flex items-center gap-3 min-w-0">
+            <div className="relative inline-flex shrink-0">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-amber-400 to-indigo-400 p-0.5 shadow-md">
+                <div className="w-full h-full bg-slate-900/90 rounded-[10px] flex items-center justify-center">
+                  <Contact className="w-4 h-4 sm:w-5 sm:h-5 text-amber-300" />
+                </div>
               </div>
             </div>
-            <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-slate-950 text-[10px] font-black shadow">
-              <Sparkles className="w-3 h-3" />
-            </span>
-          </div>
 
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">স্টুডেন্ট পোর্টাল</h2>
-          <p className="text-xs sm:text-sm text-indigo-200 mt-1 max-w-md mx-auto leading-relaxed">
-            {googleUser
-              ? `${googleUser.name} — সেকশন বেছে নিন, বিস্তারিত আলাদা পেজে খুলবে`
-              : "আপনার পারফরম্যান্স ও পরীক্ষার ইতিহাস — সেকশন বেছে নিন"}
-          </p>
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-black tracking-tight text-white leading-tight">
+                স্টুডেন্ট পোর্টাল
+              </h2>
+              <p className="text-[11px] text-indigo-200 mt-0.5 leading-snug truncate">
+                {googleUser
+                  ? `${googleUser.name} — সেকশন বেছে নিন`
+                  : "আপনার পারফরম্যান্স ও পরীক্ষার ইতিহাস"}
+              </p>
+            </div>
+          </div>
         </div>
 
         {!googleUser && (
@@ -150,6 +181,72 @@ export default function PortalPage() {
 
         {googleUser && (
           <>
+            {/* নাম + নাম-পরিবর্তন — পোর্টালে ঢুকতেই দৃশ্যমান */}
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 rounded-2xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0 overflow-hidden">
+                    {googleUser.photoURL ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={googleUser.photoURL} alt="Avatar" className="w-11 h-11 rounded-2xl object-cover" />
+                    ) : (
+                      <User className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    {editingName ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={newName}
+                          onChange={(e) => setNewName(e.target.value)}
+                          placeholder="আপনার নাম লিখুন"
+                          className="px-2.5 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-900 font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveName}
+                          disabled={savingName}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          {savingName ? "সংরক্ষণ..." : "সংরক্ষণ"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingName(false);
+                            setNewName(googleUser.name);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold cursor-pointer"
+                        >
+                          বাতিল
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-slate-900 text-sm sm:text-base truncate">
+                          {googleUser.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewName(googleUser.name);
+                            setEditingName(true);
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition cursor-pointer shrink-0"
+                        >
+                          <Pencil className="w-3 h-3" /> নাম পরিবর্তন
+                        </button>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                      Google অ্যাকাউন্টে লগইন করা আছেন
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">

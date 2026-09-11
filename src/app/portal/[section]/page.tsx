@@ -214,9 +214,10 @@ export default function PortalSectionPage() {
             wide
             isOpen
             initialTab={meta.tab}
-            // শুধু 'পরীক্ষার ফলাফল' (results) সেকশন-পেজে উপরের ৪টি সেকশন ট্যাব
-            // বাদ দিই — বাকি সেকশনগুলোতে আগের মতো ৪টি ট্যাব থেকে নেভিগেট করা যায়।
-            hideTabs={raw === "results"}
+            // সেকশন-পেজে ৪টি সেকশন-ট্যাব আর দেখাই না — শিক্ষার্থী একবার ট্যাপ করে
+            // এই সেকশনে এসেছে, তাই এখানে আবার একই অপশনগুলো পুনরাবৃত্তি করা হয় না।
+            // অন্য সেকশনে যেতে উপরের "← Student Portal-এ ফিরুন" দিয়েই ফিরবে।
+            hideTabs
             studentId={activeStudentId}
             exams={config?.exams || {}}
             routineUrl={config?.driveRoutineUrl}

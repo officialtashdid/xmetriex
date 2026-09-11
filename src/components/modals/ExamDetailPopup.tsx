@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, Clock, Loader2, CheckCircle2, XCircle, MinusCircle, Award, CalendarDays } from "lucide-react";
+import { X, Clock, Loader2, CheckCircle2, XCircle, MinusCircle, Award, CalendarDays, ListChecks, ChevronDown, ChevronUp } from "lucide-react";
 import { Submission } from "@/types/submission";
 import { Exam, QuestionItem, QuestionSolution } from "@/types/exam";
 import { getExamSolutions } from "@/actions/exam-actions";
@@ -30,6 +30,8 @@ export const ExamDetailPopup: React.FC<ExamDetailPopupProps> = ({
   const [solutions, setSolutions] = useState<QuestionSolution[] | null>(null);
   const [examQuestions, setExamQuestions] = useState<QuestionItem[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // আগে সংক্ষিপ্ত (brief) ফলাফল — শিক্ষার্থী চাইলে "বিস্তারিত" চেপে প্রশ্ন-রিভিউ খোলে
+  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     if (isOpen && submission) {
@@ -126,42 +128,63 @@ export const ExamDetailPopup: React.FC<ExamDetailPopupProps> = ({
           <p className="text-xs text-slate-500 text-center py-12">এই পরীক্ষার প্রশ্নাবলি আর উপলব্ধ নেই।</p>
         ) : (
           <>
-            {/* Summary strip */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
-              <div className="flex items-center gap-3 flex-wrap justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
-                    <Award className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-slate-500 font-bold">চূড়ান্ত স্কোর</p>
-                    <p className="text-2xl font-black text-slate-900">{toBengaliDigits(submission.score ?? 0)}</p>
-                  </div>
+            {/* সংক্ষিপ্ত ফলাফল (brief) — মোবাইল-ফ্রেন্ডলি */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-3">
+              {/* স্কোর হিরো */}
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                  <Award className="w-6 h-6" />
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-black">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> সঠিক {toBengaliDigits(correct)}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-800 border border-rose-200 px-3 py-1.5 rounded-xl text-xs font-black">
-                    <XCircle className="w-3.5 h-3.5" /> ভুল {toBengaliDigits(incorrect)}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-black">
-                    <MinusCircle className="w-3.5 h-3.5" /> বাদ {toBengaliDigits(skipped)}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-1.5 rounded-xl text-xs font-black">
-                    সঠিকতার হার {toBengaliDigits(accuracy)}%
-                  </span>
+                <div className="min-w-0">
+                  <p className="text-[11px] text-slate-500 font-bold">চূড়ান্ত স্কোর</p>
+                  <p className="text-2xl font-black text-slate-900 leading-tight">
+                    {toBengaliDigits(submission.score ?? 0)}
+                    <span className="text-sm text-slate-400 font-bold"> / {toBengaliDigits(total)}</span>
+                  </p>
                 </div>
+                <span className="ml-auto shrink-0 inline-flex items-center gap-1 bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-1.5 rounded-xl text-xs font-black">
+                  সঠিকতা {toBengaliDigits(accuracy)}%
+                </span>
               </div>
-              <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden flex">
+
+              {/* প্রগ্রেস বার */}
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden flex">
                 <div className="bg-emerald-500" style={{ width: `${total ? (correct / total) * 100 : 0}%` }} />
                 <div className="bg-rose-400" style={{ width: `${total ? (incorrect / total) * 100 : 0}%` }} />
               </div>
+
+              {/* ৩টি মেট্রিক — মোবাইলে গ্রিড, টেক্সট ওভারফ্লো করে না */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-center">
+                  <div className="text-base font-black text-emerald-800">{toBengaliDigits(correct)}</div>
+                  <div className="text-[10px] text-emerald-700 font-bold mt-0.5">সঠিক</div>
+                </div>
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-center">
+                  <div className="text-base font-black text-rose-800">{toBengaliDigits(incorrect)}</div>
+                  <div className="text-[10px] text-rose-700 font-bold mt-0.5">ভুল</div>
+                </div>
+                <div className="bg-slate-100 border border-slate-200 rounded-xl p-2.5 text-center">
+                  <div className="text-base font-black text-slate-700">{toBengaliDigits(skipped)}</div>
+                  <div className="text-[10px] text-slate-500 font-bold mt-0.5">বাদ</div>
+                </div>
+              </div>
+
+              {/* বিস্তারিত দেখার টগল */}
+              <button
+                type="button"
+                onClick={() => setShowDetails((v) => !v)}
+                className="w-full inline-flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-sm transition cursor-pointer"
+              >
+                <ListChecks className="w-4 h-4" />
+                {showDetails ? "বিস্তারিত লুকান" : "প্রশ্নভিত্তিক বিস্তারিত দেখুন"}
+                {showDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
             </div>
 
-            {/* Full question review */}
-            <div className="space-y-4">
-              {displayQuestions.map((q, qIdx) => {
+            {/* Full question review — শুধু বিস্তারিত চাইলে */}
+            {showDetails && (
+              <div className="space-y-4">
+                {displayQuestions.map((q, qIdx) => {
                 const studentAnsIdx = submission.answers?.[qIdx] ?? null;
                 const sol = solutions?.[qIdx] || { correct: 0, exp: "" };
                 const isCorrect = studentAnsIdx !== null && studentAnsIdx === sol.correct;
@@ -261,7 +284,8 @@ export const ExamDetailPopup: React.FC<ExamDetailPopupProps> = ({
                   </div>
                 );
               })}
-            </div>
+              </div>
+            )}
 
             <div className="text-center pb-2">
               <button
