@@ -477,6 +477,11 @@ export default function ExamPage() {
               </div>
             ))}
           </div>
+
+          {/* অ্যানিমেটেড indeterminate প্রগ্রেস-বার — লোড চলছে বোঝায় */}
+          <div className="h-1.5 rounded-full bg-indigo-100 overflow-hidden">
+            <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 animate-[loadingbar_1.4s_ease-in-out_infinite]" />
+          </div>
           <p className="text-[10px] text-slate-400 font-bold">
             🔒 প্রশ্ন সুরক্ষিত — যাচাইকৃত সেশনে প্রশ্ন আসে, অন্যদের কাছে দেখা যায় না
           </p>

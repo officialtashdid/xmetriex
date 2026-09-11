@@ -6,7 +6,7 @@ import { Header } from "@/components/shared/Header";
 import { Footer } from "@/components/shared/Footer";
 import { StudentDashboardModal } from "@/components/modals/StudentDashboardModal";
 import { ExamDetailPopup } from "@/components/modals/ExamDetailPopup";
-import { fetchAppConfigLite } from "@/actions/admin-actions";
+import { fetchDriveLinks } from "@/actions/admin-actions";
 import { AppConfigData } from "@/types/exam";
 import { Submission } from "@/types/submission";
 import {
@@ -20,6 +20,7 @@ import {
   Loader2
 } from "lucide-react";
 import { getLocalStudentUser, loginWithGoogle } from "@/lib/student-auth";
+import { LoadingState } from "@/components/shared/LoadingState";
 
 /**
  * পোর্টালের একেকটি সেকশন — আলাদা পেজ (একই ট্যাবে)। /portal থেকে কার্ডে
@@ -89,8 +90,22 @@ export default function PortalSectionPage() {
       return;
     }
 
-    fetchAppConfigLite()
-      .then(setConfig)
+    // PERF: শুধু drive-লিংক আনি (exam-তালিকা পরে শিক্ষার্থীর নিজের submission
+    // থেকে টার্গেটেডভাবে আসে) — পুরো exams/config স্ক্যান হয় না।
+    fetchDriveLinks()
+      .then((d) =>
+        setConfig({
+          courses: [],
+          subjects: [],
+          topics: [],
+          topicQuestions: [],
+          exams: {},
+          teacherPass: "",
+          driveRoutineUrl: d.driveRoutineUrl,
+          driveSyllabusUrl: d.driveSyllabusUrl,
+          pinnedCourses: []
+        } as AppConfigData)
+      )
       .catch(() => {
         console.error("Portal section config fetch failed.");
         setConfigError("সার্ভার থেকে তথ্য লোড করা যায়নি। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
@@ -121,6 +136,18 @@ export default function PortalSectionPage() {
           // verify ব্যর্থ হলে uid-ই থাকবে
         }
         setActiveStudentId(effId);
+
+        // PERF: শুধু এই শিক্ষার্থীর যে পরীক্ষাগুলোতে submission আছে সেগুলোর meta —
+        // পুরো exams টেবিল নয় (তাই ফলাফল/বিশ্লেষণ দ্রুত খোলে)
+        try {
+          const { getStudentExamMeta } = await import("@/actions/student-actions");
+          const examsMap = await getStudentExamMeta(effId);
+          if (examsMap && Object.keys(examsMap).length > 0) {
+            setConfig((prev) => (prev ? { ...prev, exams: examsMap } : prev));
+          }
+        } catch {
+          // meta না পেলে খালি exams-ই থাকবে — UI ভাঙে না
+        }
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,9 +230,11 @@ export default function PortalSectionPage() {
         )}
 
         {!configError && googleUser && !activeStudentId && (
-          <div className="flex items-center justify-center gap-2 py-10 text-slate-400 text-sm font-bold">
-            <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> ডেটা লোড হচ্ছে...
-          </div>
+          <LoadingState
+            label="ডেটা লোড হচ্ছে..."
+            hint="আপনার ফলাফল ও পারফরম্যান্স প্রস্তুত করা হচ্ছে"
+            variant="card"
+          />
         )}
 
         {!configError && googleUser && activeStudentId && (

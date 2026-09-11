@@ -113,3 +113,10 @@ html {
     max-width: 100% !important;
   }
 }
+/* ---- লোডিং অ্যানিমেশন (LoadingState কম্পোনেন্ট) ---- */
+/* indeterminate প্রগ্রেস-বল: বাঁ থেকে ডানে ঘুরে ঘুরে চলে */
+@keyframes loadingbar {
+  0%   { transform: translateX(-110%); }
+  50%  { transform: translateX(60%); }
+  100% { transform: translateX(320%); }
+}

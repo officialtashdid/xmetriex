@@ -41,6 +41,7 @@ import {
   StudentAnalyticsResult
 } from "@/lib/student-analytics";
 import { SelfPracticeModal } from "@/components/modals/SelfPracticeModal";
+import { LoadingState } from "@/components/shared/LoadingState";
 import { PracticeQuestion } from "@/lib/practice-helper";
 import { getPracticeQuestions } from "@/actions/practice-actions";
 import { getLocalStudentUser, updateLocalStudentName, logoutStudentUser, StudentUser } from "@/lib/student-auth";
@@ -554,9 +555,7 @@ export const StudentDashboardModal: React.FC<StudentDashboardModalProps> = ({
 
                 <div className="space-y-2">
                   {isLoading ? (
-                    <div className="text-center py-6 text-slate-400 flex items-center justify-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" /> পারফরম্যান্স লোড হচ্ছে...
-                    </div>
+                    <LoadingState label="পারফরম্যান্স লোড হচ্ছে..." variant="list" rows={4} />
                   ) : submissions.length === 0 ? (
                     <p className="text-xs text-slate-400 text-center py-6">আপনার কোনো পরীক্ষার রেকর্ড পাওয়া যায়নি।</p>
                   ) : (

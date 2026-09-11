@@ -4,8 +4,6 @@ import React, { useState, useEffect } from "react";
 import { X, Clock, Loader2, CheckCircle2, XCircle, MinusCircle, Award, CalendarDays, ListChecks, ChevronDown, ChevronUp } from "lucide-react";
 import { Submission } from "@/types/submission";
 import { Exam, QuestionItem, QuestionSolution } from "@/types/exam";
-import { getExamSolutions } from "@/actions/exam-actions";
-import { fetchExamWithQuestions } from "@/actions/admin-actions";
 import { isAnswerTimeReached } from "@/lib/bangladesh-time";
 import { formatBangladeshClock, toBengaliDigits } from "@/lib/utils";
 
@@ -36,31 +34,34 @@ export const ExamDetailPopup: React.FC<ExamDetailPopupProps> = ({
   useEffect(() => {
     if (isOpen && submission) {
       setIsLoading(true);
-      Promise.all([
-        fetchExamWithQuestions(submission.examKey),
-        getExamSolutions(submission.examKey)
-      ])
-        .then(([ex, sols]) => {
-          setExamQuestions(ex?.questions || null);
-          setSolutions(sols);
+      // PERF: একটাই টার্গেটেড কল — শুধু ওই exam-এর exam-মেটা + প্রশ্ন + (রিলিজ হলে)
+      // উত্তর। আগে দুটি আলাদা কল হতো (fetchExamWithQuestions + getExamSolutions)।
+      import("@/actions/exam-actions")
+        .then(({ getExamResultBundle }) => getExamResultBundle(submission.examKey))
+        .then((bundle) => {
+          if (!bundle) {
+            setExamQuestions(null);
+            setSolutions(null);
+            setIsLoading(false);
+            return;
+          }
+          setExamQuestions(bundle.questions);
+          setSolutions(bundle.solutions);
           setIsLoading(false);
-          const qs =
-            ex?.questions && ex.questions.length > 0
-              ? ex.questions
-              : exam?.questions || [];
-          if (sols && qs.length > 0 && submission.studentId) {
+          const qs = bundle.questions.length > 0 ? bundle.questions : exam?.questions || [];
+          if (bundle.solutions && qs.length > 0 && submission.studentId) {
             saveMistakesFromSubmission(
               submission.studentId,
               submission.examTitle,
               qs,
-              sols,
+              bundle.solutions,
               submission.answers || [],
-              ex?.subject || exam?.subject || ""
+              bundle.exam.subject || exam?.subject || ""
             );
           }
         })
         .catch((err) => {
-          console.error("Failed to load exam solutions:", err);
+          console.error("Failed to load exam result:", err);
           setIsLoading(false);
         });
     }

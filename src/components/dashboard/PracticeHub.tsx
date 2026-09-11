@@ -20,6 +20,7 @@ import { verifyTeacherSession } from "@/actions/admin-actions";
 import { getLocalStudentUser, loginWithGoogle } from "@/lib/student-auth";
 import type { TopicOption } from "@/lib/practice-helper";
 import { buildTopicCountMap, buildTopicGroupTree, colorFor, type HubNode } from "@/lib/topic-group";
+import { LoadingState } from "@/components/shared/LoadingState";
 import { toBengaliDigits } from "@/lib/utils";
 
 /**
@@ -268,10 +269,11 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
   /* ------------------- গেট ভিউ: গেস্ট / লকড ------------------- */
   if (phase === "loading") {
     return (
-      <div className="bg-white rounded-3xl p-10 border border-slate-200 shadow-sm flex flex-col items-center justify-center gap-3 font-bengali text-center">
-        <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
-        <p className="text-sm font-bold text-slate-700">এক্সেস যাচাই করা হচ্ছে...</p>
-      </div>
+      <LoadingState
+        label="এক্সেস যাচাই করা হচ্ছে..."
+        hint="আপনার এনরোলমেন্ট যাচাই করে টপিক-তালিকা আনা হচ্ছে"
+        variant="card"
+      />
     );
   }
 
@@ -336,10 +338,12 @@ export const PracticeHub: React.FC<PracticeHubProps> = ({ onOpenEnrollModal }) =
   /* ------------------- হাব ভিউ ------------------- */
   if (topics === null) {
     return (
-      <div className="bg-white rounded-3xl p-10 border border-slate-200 shadow-sm flex flex-col items-center justify-center gap-3 font-bengali text-center">
-        <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" />
-        <p className="text-sm font-bold text-slate-700">প্রশ্নের তালিকা লোড হচ্ছে...</p>
-      </div>
+      <LoadingState
+        label="প্রশ্নের তালিকা লোড হচ্ছে..."
+        hint="টপিক-গ্রুপ ও প্রশ্নসংখ্যা হিসাব করা হচ্ছে"
+        variant="list"
+        rows={5}
+      />
     );
   }
 
