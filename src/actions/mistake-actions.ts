@@ -32,11 +32,12 @@ export interface MistakeSyncItem {
   isBookmarked?: boolean;
 }
 
-type SyncKind = "mistakes" | "bookmarks";
+type SyncKind = "mistakes" | "bookmarks" | "reads";
 
 const TABLE_FOR: Record<SyncKind, string> = {
   mistakes: "student_mistakes",
-  bookmarks: "student_bookmarks"
+  bookmarks: "student_bookmarks",
+  reads: "student_read_questions"
 };
 
 async function resolveSessionOwner(): Promise<{ uid: string; email?: string } | null> {
@@ -250,6 +251,96 @@ export async function removeBookmarkItem(rawStudentId: string, questionText: str
       .delete()
       .eq("q", questionText)
       .in("student_id", ids);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * ── প্রশ্নব্যাংকের "পড়া হয়েছে" টিক (student_read_questions) ─────────────
+ *
+ * প্রশ্নব্যাংকে প্রতিটি প্রশ্নের পাশে ✓ চিহ্ন দিয়ে শিক্ষার্থী পড়া-চিহ্ন
+ * বসায়; বুকমার্কের মতোই সেটা সার্ভারে রাখা হয় যাতে অন্য ডিভাইসেও মেলে।
+ * টেবিল না থাকলে প্রতিটি ফাংশন null/false ফেরত দেয় — ক্লায়েন্ট তখন
+ * localStorage-ভিত্তিক আচরণে চলে যায় (অ্যাপ ভাঙে না)।
+ */
+
+/** এই স্টুডেন্টের পড়া-হয়েছে তালিকা (নতুন আগে)। সেশন/টেবিল না থাকলে null। */
+export async function fetchStudentReadQuestions(rawStudentId: string): Promise<MistakeSyncItem[] | null> {
+  const session = await resolveSessionOwner();
+  if (!session) return null;
+  const ids = await candidateIds(rawStudentId, session);
+  if (ids.length === 0) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_FOR.reads)
+      .select("*")
+      .in("student_id", ids)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (error) return null;
+    return (data || []).map(rowToItem);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * নতুন পড়া-চিহ্নগুলো যোগ করে — যেগুলো ইতিমধ্যে আছে (প্রশ্নের লেখা দিয়ে)
+ * সেগুলো বাদ যায়। পরপর অনেক প্রশ্ন টিক দিলেও বড় insert হয় না।
+ */
+export async function addReadItems(rawStudentId: string, items: MistakeSyncItem[]): Promise<boolean> {
+  const ids = await authorizedIds(rawStudentId);
+  if (!ids) return false;
+  if (!items || items.length === 0) return true;
+
+  try {
+    const { data: existing } = await supabase
+      .from(TABLE_FOR.reads)
+      .select("q")
+      .in("student_id", ids);
+    if (existing === null) return false;
+
+    const have = new Set((existing || []).map((r) => qKey(r.q)));
+    const fresh = items.filter((it) => it && it.q && !have.has(qKey(it.q)));
+    if (fresh.length === 0) return true;
+
+    for (let i = 0; i < fresh.length; i += 500) {
+      const { error } = await supabase
+        .from(TABLE_FOR.reads)
+        .insert(fresh.slice(i, i + 500).map((it) => itemToRow(it, ids[0])));
+      if (error) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** একটা প্রশ্নের পড়া-চিহ্ন মুছে দেয় (প্রশ্নের লেখা দিয়ে)। */
+export async function removeReadItem(rawStudentId: string, questionText: string): Promise<boolean> {
+  const ids = await authorizedIds(rawStudentId);
+  if (!ids || !questionText) return false;
+  try {
+    const { error } = await supabase
+      .from(TABLE_FOR.reads)
+      .delete()
+      .eq("q", questionText)
+      .in("student_id", ids);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** এই স্টুডেন্টের সব পড়া-চিহ্ন মুছে দেয়। */
+export async function clearStudentReads(rawStudentId: string): Promise<boolean> {
+  const ids = await authorizedIds(rawStudentId);
+  if (!ids) return false;
+  try {
+    const { error } = await supabase.from(TABLE_FOR.reads).delete().in("student_id", ids);
     return !error;
   } catch {
     return false;

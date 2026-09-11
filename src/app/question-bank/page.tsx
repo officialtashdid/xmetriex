@@ -5,7 +5,9 @@ import { Header } from "@/components/shared/Header";
 import { Footer } from "@/components/shared/Footer";
 import {
   BookOpen,
+  Bookmark,
   Check,
+  CheckCheck,
   ChevronRight,
   Eye,
   EyeOff,
@@ -27,6 +29,14 @@ import { getLocalStudentUser, loginWithGoogle } from "@/lib/student-auth";
 import { toBengaliDigits } from "@/lib/utils";
 import { buildTopicGroupTree, colorFor, pruneEmptyNodes, type HubNode } from "@/lib/topic-group";
 import { LoadingState } from "@/components/shared/LoadingState";
+import { BookmarkButton } from "@/components/shared/BookmarkButton";
+import { getStudentBookmarks, syncStudentMistakeData } from "@/lib/mistake-bookmark-store";
+import {
+  getStudentReads,
+  markQuestionsRead,
+  syncStudentReads,
+  toggleQuestionRead
+} from "@/lib/read-store";
 
 /**
  * প্রশ্নব্যাংক — সেলফ প্র্যাকটিস হাবের মতোই টপিক-গ্রুপ কার্ড গ্রিডে সাজানো।
@@ -49,6 +59,16 @@ interface TopicEntry {
   name: string;
   count: number;
 }
+
+/** পড়ার তালিকায় ফিল্টার — পড়া/বুকমার্ক করা প্রশ্ন সহজে খুঁজে পাওয়ার জন্য। */
+type BankFilter = "all" | "unread" | "read" | "bookmarked";
+
+const FILTER_LABELS: { id: BankFilter; label: string }[] = [
+  { id: "all", label: "সব" },
+  { id: "unread", label: "পড়া হয়নি" },
+  { id: "read", label: "পড়া হয়েছে" },
+  { id: "bookmarked", label: "বুকমার্ক" }
+];
 
 const optLabels = ["ক", "খ", "গ", "ঘ"];
 
@@ -99,6 +119,10 @@ export default function QuestionBankPage() {
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const [fullscreen, setFullscreen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(READ_CHUNK);
+  // পড়া-চিহ্ন (✓) ও বুকমার্ক — ফিল্টার/সংগ্রহ ভিউ
+  const [filter, setFilter] = useState<BankFilter>("all");
+  const [collection, setCollection] = useState<null | "bookmarks" | "reads">(null);
+  const [storeTick, setStoreTick] = useState(0);
 
   // হাব (টপিক-গ্রুপ) স্টেট
   const [activeGroupPath, setActiveGroupPath] = useState<string | null>(null);
@@ -112,6 +136,55 @@ export default function QuestionBankPage() {
   const hiddenGroups = rawTree.length - tree.length;
   const totalCount = useMemo(() => tree.reduce((s, n) => s + n.count, 0), [tree]);
   const hasNested = useMemo(() => tree.some((n) => n.children.length > 0), [tree]);
+
+  // পড়া-চিহ্ন (✓) ও বুকমার্কের কী-সেট — O(1) চেক, তাই প্রতি প্রশ্নে পুরো
+  // তালিকা স্ক্যান হয় না। storeTick বদলালে (টিক/বুকমার্ক টগল হলে) আবার গোনা হয়।
+  const storeId = accessId || user?.uid || "";
+  const readKeys = useMemo(
+    () => new Set(getStudentReads(storeId).map((i) => i.q.trim().toLowerCase())),
+    [storeId, storeTick]
+  );
+  const bookmarkKeys = useMemo(
+    () => new Set(getStudentBookmarks(storeId).map((i) => i.q.trim().toLowerCase())),
+    [storeId, storeTick]
+  );
+
+  // অন্য ট্যাব/কম্পোনেন্টে টিক বা বুকমার্ক বদলালে সাথে সাথে UI হালনাগাদ
+  useEffect(() => {
+    const onStore = () => setStoreTick((t) => t + 1);
+    window.addEventListener("storage", onStore);
+    return () => window.removeEventListener("storage", onStore);
+  }, []);
+
+  // দেখানো তালিকা: সংগ্রহ-ভিউ হলে সেই সংগ্রহ (বুকমার্ক/পড়া), তারপর টপিক-ভিতরের ফিল্টার
+  const visibleQuestions = useMemo(() => {
+    let list = questions;
+    if (collection) {
+      list = list.filter((q) => {
+        const key = q.q.trim().toLowerCase();
+        return collection === "bookmarks" ? bookmarkKeys.has(key) : readKeys.has(key);
+      });
+    }
+    if (filter === "all") return list;
+    return list.filter((q) => {
+      const key = q.q.trim().toLowerCase();
+      if (filter === "read") return readKeys.has(key);
+      if (filter === "unread") return !readKeys.has(key);
+      return bookmarkKeys.has(key);
+    });
+  }, [questions, collection, filter, readKeys, bookmarkKeys]);
+
+  const readCount = useMemo(
+    () => questions.filter((q) => readKeys.has(q.q.trim().toLowerCase())).length,
+    [questions, readKeys]
+  );
+  const bookmarkedCount = useMemo(
+    () => questions.filter((q) => bookmarkKeys.has(q.q.trim().toLowerCase())).length,
+    [questions, bookmarkKeys]
+  );
+  // হাবের "আমার সংগ্রহ" কার্ডে মোট সংখ্যা (শুধু খোলা তালিকা নয় — সব মিলিয়ে)
+  const totalBookmarks = useMemo(() => getStudentBookmarks(storeId).length, [storeId, storeTick]);
+  const totalReads = useMemo(() => getStudentReads(storeId).length, [storeId, storeTick]);
 
   useEffect(() => {
     const u = getLocalStudentUser();
@@ -151,6 +224,11 @@ export default function QuestionBankPage() {
         }
         setAccessId(effId);
         setAccessEmail(effEmail || "");
+
+        // অন্য ডিভাইসে দেওয়া ✓ টিকগুলোও যেন এখানে মেলে — ব্যাকগ্রাউন্ডে একবার
+        // সিঙ্ক (টেবিল না থাকলে নীরব ব্যর্থ, localStorage-ই চলবে)। সিঙ্ক শেষে
+        // store "storage" ইভেন্ট দেয়, তাতেই readKeys/totalReads হালনাগাদ হয়।
+        void syncStudentReads(effId || u.uid).catch(() => {});
 
         // দ্রুত খোলা: পরিচয় ঠিক হলেই লোকাল cache-এর তালিকা সাথে সাথে দেখাই —
         // তারপর পেছনে সার্ভার থেকে নতুন কাউন্ট এনে cache হালনাগাদ হয়।
@@ -195,6 +273,8 @@ export default function QuestionBankPage() {
       setSelectedLabel(label);
       setVisibleCount(READ_CHUNK);
       setFullscreen(false);
+      setFilter("all");
+      setCollection(null);
       window.scrollTo({ top: 0 });
     } catch {
       setLoadError("প্রশ্ন লোড করা যায়নি। আবার চেষ্টা করুন।");
@@ -208,6 +288,91 @@ export default function QuestionBankPage() {
     setRevealed(new Set());
     setFullscreen(false);
     setVisibleCount(READ_CHUNK);
+    setFilter("all");
+    setCollection(null);
+  };
+
+  // ── পড়া-চিহ্ন (✓) / বুকমার্ক / সংগ্রহ ───────────────────────────────────
+
+  /** প্রশ্নের পাশে ✓ — "পড়া হয়েছে" চিহ্ন বসায় বা তোলে। */
+  const toggleRead = (item: BankQ) => {
+    if (!storeId) return;
+    toggleQuestionRead(storeId, {
+      q: item.q,
+      opts: item.opts,
+      correct: item.correct,
+      exp: item.exp || "",
+      subject: item.subject,
+      topic: item.topic
+    });
+    setStoreTick((t) => t + 1);
+  };
+
+  /** এখন যা দেখা যাচ্ছে সেই সব প্রশ্ন একসাথে পড়া হিসেবে চিহ্নিত করে। */
+  const markAllVisibleRead = () => {
+    if (!storeId) return;
+    const added = markQuestionsRead(
+      storeId,
+      visibleQuestions.map((q) => ({
+        q: q.q,
+        opts: q.opts,
+        correct: q.correct,
+        exp: q.exp || "",
+        subject: q.subject,
+        topic: q.topic
+      }))
+    );
+    if (added > 0) setStoreTick((t) => t + 1);
+  };
+
+  /**
+   * "আমার সংগ্রহ" — বুকমার্ক করা বা পড়া-হয়েছে প্রশ্নগুলো সব টপিক মিলিয়ে এক
+   * জায়গায়। খোলার সময় একবার সার্ভার-সিঙ্ক চালাই, যাতে অন্য ডিভাইসে জমানো
+   * তালিকাও এখানে মেলে (টেবিল না থাকলে নীরবভাবে লোকাল তালিকাই দেখায়)।
+   */
+  const openCollection = async (kind: "bookmarks" | "reads") => {
+    if (!user) return;
+    const id = storeId || user.uid;
+    setBusy(true);
+    setLoadError("");
+    setRevealed(new Set());
+    try {
+      if (kind === "bookmarks") await syncStudentMistakeData(id);
+      else await syncStudentReads(id);
+      setStoreTick((t) => t + 1);
+
+      const items = kind === "bookmarks" ? getStudentBookmarks(id) : getStudentReads(id);
+      if (items.length === 0) {
+        setLoadError(
+          kind === "bookmarks"
+            ? "এখনো কোনো প্রশ্ন বুকমার্ক করা হয়নি — প্রশ্নের পাশে 🔖 বাটনে চাপ দিলে সেটি এখানে জমা হবে।"
+            : "এখনো কোনো প্রশ্ন পড়া হিসেবে চিহ্নিত করা হয়নি — প্রশ্নের পাশে ✓ বাটনে চাপ দিলে সেটি এখানে জমা হবে।"
+        );
+        setBusy(false);
+        return;
+      }
+
+      setQuestions(
+        items.map((i) => ({
+          id: i.id,
+          q: i.q,
+          opts: i.opts,
+          correct: i.correct,
+          exp: i.exp,
+          subject: i.subject,
+          topic: i.topic
+        }))
+      );
+      setCollection(kind);
+      setFilter("all");
+      setSelectedLabel(kind === "bookmarks" ? "আমার বুকমার্ক" : "পড়া হয়েছে");
+      setVisibleCount(READ_CHUNK);
+      setFullscreen(false);
+      window.scrollTo({ top: 0 });
+    } catch {
+      setLoadError("সংগ্রহ লোড করা যায়নি। আবার চেষ্টা করুন।");
+    }
+    setBusy(false);
   };
 
   const openGroup = (node: HubNode) => {
@@ -282,13 +447,86 @@ export default function QuestionBankPage() {
     };
   }, [fullscreen]);
 
+  /** পড়া/বুকমার্ক ফিল্টার-চিপ (সব • পড়া হয়নি • পড়া হয়েছে • বুকমার্ক) */
+  const renderFilterBar = () => (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {FILTER_LABELS.map((f) => {
+        const count =
+          f.id === "read"
+            ? readCount
+            : f.id === "bookmarked"
+            ? bookmarkedCount
+            : f.id === "unread"
+            ? Math.max(0, questions.length - readCount)
+            : questions.length;
+        const isActive = filter === f.id;
+        return (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => {
+              setFilter(f.id);
+              setVisibleCount(READ_CHUNK);
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+              isActive
+                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                : "bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700"
+            }`}
+          >
+            {f.label}
+            <span
+              className={`rounded-full px-1.5 text-[10px] font-black ${
+                isActive ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              {toBengaliDigits(count)}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  /** সংগ্ৰহ-ভিউয়ে বুকমার্ক ↔ পড়া হয়েছে সহজে বদলানোর ট্যাব */
+  const renderCollectionTabs = () =>
+    collection && (
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {(
+          [
+            { id: "bookmarks" as const, label: "বুকমার্ক", icon: <Bookmark className="w-3.5 h-3.5" /> },
+            { id: "reads" as const, label: "পড়া হয়েছে", icon: <CheckCheck className="w-3.5 h-3.5" /> }
+          ]
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => openCollection(t.id)}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+              collection === t.id
+                ? "bg-slate-900 text-white border-slate-900"
+                : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+            }`}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </div>
+    );
+
   // প্রশ্ন-কার্ড তালিকা (ইনলাইন ও ফুল-স্ক্রিন — দুটোতেই একই)
   const renderQuestionCardsList = () => (
     <div className="space-y-3">
-      {questions.slice(0, visibleCount).map((q, idx) => {
+      {visibleQuestions.slice(0, visibleCount).map((q, idx) => {
         const isOpen = revealed.has(idx);
+        const qKey = q.q.trim().toLowerCase();
+        const isRead = readKeys.has(qKey);
         return (
-          <div key={q.id || idx} className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+          <div
+            key={q.id || idx}
+            className={`bg-white rounded-2xl p-4 border shadow-sm ${isRead ? "border-emerald-200" : "border-slate-200"}`}
+          >
             <p className="text-sm font-bold text-slate-900 leading-relaxed">
               {toBengaliDigits(idx + 1)}. {q.q}
             </p>
@@ -313,14 +551,44 @@ export default function QuestionBankPage() {
               ))}
             </div>
 
-            <button
-              type="button"
-              onClick={() => toggleReveal(idx)}
-              className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
-            >
-              {isOpen ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              {isOpen ? "উত্তর লুকান" : "সঠিক উত্তর ও ব্যাখ্যা দেখুন"}
-            </button>
+            {/* পড়ার কাজ-বাটন: উত্তর দেখা • পড়া হয়েছে (✓) • বুকমার্ক */}
+            <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => toggleReveal(idx)}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+              >
+                {isOpen ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {isOpen ? "উত্তর লুকান" : "সঠিক উত্তর ও ব্যাখ্যা দেখুন"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => toggleRead(q)}
+                title={isRead ? "পড়া হয়নি হিসেবে ফিরিয়ে দিন" : "পড়া হয়েছে হিসেবে চিহ্নিত করুন"}
+                className={`rounded-xl border transition-all duration-200 flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none active:scale-95 ${
+                  isRead
+                    ? "bg-emerald-100 text-emerald-900 border-emerald-300 font-bold shadow-sm"
+                    : "bg-slate-100/80 hover:bg-slate-200/80 text-slate-600 border-slate-200"
+                }`}
+              >
+                <CheckCheck className={`w-4 h-4 ${isRead ? "text-emerald-600" : "text-slate-500"}`} />
+                <span className="hidden sm:inline">{isRead ? "পড়া হয়েছে" : "পড়া হয়নি"}</span>
+              </button>
+
+              <BookmarkButton
+                studentId={storeId}
+                size="sm"
+                question={{
+                  q: q.q,
+                  opts: q.opts,
+                  correct: q.correct,
+                  exp: q.exp || "",
+                  subject: q.subject || selectedLabel,
+                  topic: q.topic
+                }}
+              />
+            </div>
 
             {isOpen && q.exp && (
               <div className="mt-2 p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-slate-700 leading-relaxed flex gap-2">
@@ -334,26 +602,50 @@ export default function QuestionBankPage() {
         );
       })}
 
-      {visibleCount < questions.length && (
+      {visibleQuestions.length === 0 && (
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 text-center space-y-1.5">
+          <p className="text-sm font-bold text-slate-700">
+            {filter === "read"
+              ? "এই তালিকায় এখনো কোনো প্রশ্ন পড়া হিসেবে চিহ্নিত হয়নি"
+              : filter === "unread"
+              ? "দারুণ — এই তালিকার সব প্রশ্নই পড়া হয়ে গেছে"
+              : filter === "bookmarked"
+              ? "এই তালিকায় কোনো প্রশ্ন বুকমার্ক করা নেই"
+              : "প্রশ্ন নেই"}
+          </p>
+          <p className="text-xs text-slate-500">
+            প্রশ্নের পাশে ✓ বা 🔖 বাটনে চাপ দিলে সেটি এখানে জমা হবে।
+          </p>
+          <button
+            type="button"
+            onClick={() => setFilter("all")}
+            className="mt-1 inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2 rounded-xl text-xs cursor-pointer transition"
+          >
+            সব প্রশ্ন দেখান
+          </button>
+        </div>
+      )}
+
+      {visibleCount < visibleQuestions.length && (
         <div className="flex flex-col items-center gap-2.5 pt-2 pb-4">
           <p className="text-[11px] font-bold text-slate-400">
-            মোট {toBengaliDigits(questions.length)}টির মধ্যে {toBengaliDigits(visibleCount)}টি দেখানো হচ্ছে
+            মোট {toBengaliDigits(visibleQuestions.length)}টির মধ্যে {toBengaliDigits(visibleCount)}টি দেখানো হচ্ছে
           </p>
           <div className="flex items-center gap-2 flex-wrap justify-center">
             <button
               type="button"
-              onClick={() => setVisibleCount((v) => Math.min(questions.length, v + READ_CHUNK))}
+              onClick={() => setVisibleCount((v) => Math.min(visibleQuestions.length, v + READ_CHUNK))}
               className="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold px-5 py-2.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
             >
               <BookOpen className="w-4 h-4" /> আরও{" "}
-              {toBengaliDigits(Math.min(READ_CHUNK, questions.length - visibleCount))}টি প্রশ্ন দেখুন
+              {toBengaliDigits(Math.min(READ_CHUNK, visibleQuestions.length - visibleCount))}টি প্রশ্ন দেখুন
             </button>
             <button
               type="button"
-              onClick={() => setVisibleCount(questions.length)}
+              onClick={() => setVisibleCount(visibleQuestions.length)}
               className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-5 py-2.5 rounded-xl text-xs cursor-pointer transition"
             >
-              সবগুলো দেখান ({toBengaliDigits(questions.length)}টি)
+              সবগুলো দেখান ({toBengaliDigits(visibleQuestions.length)}টি)
             </button>
           </div>
         </div>
@@ -569,6 +861,47 @@ export default function QuestionBankPage() {
               </div>
             ) : (
               <>
+                {/* আমার সংগ্রহ — বুকমার্ক ও পড়া-হয়েছে প্রশ্ন সব টপিক মিলিয়ে */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openCollection("bookmarks")}
+                    className="w-full text-left rounded-2xl border border-amber-200 bg-amber-50/70 hover:bg-amber-100/70 p-3.5 sm:p-4 transition cursor-pointer active:scale-[0.995]"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                        <Bookmark className="w-4.5 h-4.5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-black text-slate-900 text-sm">আমার বুকমার্ক</h3>
+                        <p className="text-[11px] text-slate-500 font-semibold">
+                          {toBengaliDigits(totalBookmarks)}টি প্রশ্ন সংরক্ষিত
+                        </p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-amber-600 shrink-0" />
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => openCollection("reads")}
+                    className="w-full text-left rounded-2xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/70 p-3.5 sm:p-4 transition cursor-pointer active:scale-[0.995]"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                        <CheckCheck className="w-4.5 h-4.5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-black text-slate-900 text-sm">পড়া হয়েছে</h3>
+                        <p className="text-[11px] text-slate-500 font-semibold">
+                          {toBengaliDigits(totalReads)}টি প্রশ্নে ✓ টিক আছে
+                        </p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-emerald-600 shrink-0" />
+                    </div>
+                  </button>
+                </div>
+
                 {/* মাস্টার কার্ড — সব টপিক */}
                 <button
                   type="button"
@@ -740,33 +1073,54 @@ export default function QuestionBankPage() {
         {/* ============ Reading detail (ইনলাইন) ============ */}
         {questions.length > 0 && !fullscreen && (
           <section className="space-y-4">
-            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm flex items-center justify-between gap-3 flex-wrap">
-              <div className="min-w-0">
-                <button
-                  type="button"
-                  onClick={backToBank}
-                  className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
-                >
-                  ← প্রশ্নব্যাংকে ফিরে যান
-                </button>
-                <h2 className="font-black text-slate-900 text-sm sm:text-base truncate mt-1">{selectedLabel}</h2>
-                <p className="text-xs text-slate-400 font-semibold">{toBengaliDigits(questions.length)}টি প্রশ্ন</p>
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <button
+                    type="button"
+                    onClick={backToBank}
+                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
+                  >
+                    ← প্রশ্নব্যাংকে ফিরে যান
+                  </button>
+                  <h2 className="font-black text-slate-900 text-sm sm:text-base truncate mt-1">{selectedLabel}</h2>
+                  <p className="text-xs text-slate-400 font-semibold">
+                    {filter === "all"
+                      ? `${toBengaliDigits(questions.length)}টি প্রশ্ন`
+                      : `${toBengaliDigits(visibleQuestions.length)}টি দেখানো হচ্ছে (মোট ${toBengaliDigits(questions.length)}টি)`}
+                    {" • "}
+                    পড়া {toBengaliDigits(readCount)}টি • বুকমার্ক {toBengaliDigits(bookmarkedCount)}টি
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={markAllVisibleRead}
+                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <CheckCheck className="w-4 h-4" /> সব পড়া হয়েছে
+                  </button>
+                  <button
+                    type="button"
+                    onClick={revealAll}
+                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <Eye className="w-4 h-4" /> সব উত্তর দেখুন
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFullscreen(true)}
+                    className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <Maximize2 className="w-4 h-4" /> ফুল স্ক্রিনে পড়ুন
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={revealAll}
-                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
-                >
-                  <Eye className="w-4 h-4" /> সব উত্তর দেখুন
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFullscreen(true)}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
-                >
-                  <Maximize2 className="w-4 h-4" /> ফুল স্ক্রিনে পড়ুন
-                </button>
+
+              {/* পড়া/বুকমার্ক দিয়ে খোঁজার ফিল্টার + সংগ্রহ-ট্যাব */}
+              <div className="flex items-center gap-2 flex-wrap border-t border-slate-100 pt-3">
+                {renderFilterBar()}
+                {renderCollectionTabs()}
               </div>
             </div>
 
@@ -777,33 +1131,49 @@ export default function QuestionBankPage() {
         {/* ============ ফুল-স্ক্রিন রিডিং (ওভারলে) ============ */}
         {fullscreen && questions.length > 0 && (
           <div className="fixed inset-0 z-[80] bg-white overflow-y-auto font-bengali">
-            <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
-              <div className="min-w-0">
-                <button
-                  type="button"
-                  onClick={backToBank}
-                  className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
-                >
-                  ← প্রশ্নব্যাংকে ফিরে যান
-                </button>
-                <h2 className="font-black text-slate-900 text-sm sm:text-base truncate mt-1">{selectedLabel}</h2>
-                <p className="text-xs text-slate-400 font-semibold">{toBengaliDigits(questions.length)}টি প্রশ্ন</p>
+            <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 px-4 sm:px-6 py-3 space-y-2.5">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <button
+                    type="button"
+                    onClick={backToBank}
+                    className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
+                  >
+                    ← প্রশ্নব্যাংকে ফিরে যান
+                  </button>
+                  <h2 className="font-black text-slate-900 text-sm sm:text-base truncate mt-1">{selectedLabel}</h2>
+                  <p className="text-xs text-slate-400 font-semibold">
+                    {toBengaliDigits(visibleQuestions.length)}টি প্রশ্ন • পড়া {toBengaliDigits(readCount)}টি • বুকমার্ক{" "}
+                    {toBengaliDigits(bookmarkedCount)}টি
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={markAllVisibleRead}
+                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <CheckCheck className="w-4 h-4" /> সব পড়া হয়েছে
+                  </button>
+                  <button
+                    type="button"
+                    onClick={revealAll}
+                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <Eye className="w-4 h-4" /> সব উত্তর দেখুন
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFullscreen(false)}
+                    className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <X className="w-4 h-4" /> ফুল স্ক্রিন বন্ধ
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={revealAll}
-                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
-                >
-                  <Eye className="w-4 h-4" /> সব উত্তর দেখুন
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFullscreen(false)}
-                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition"
-                >
-                  <X className="w-4 h-4" /> ফুল স্ক্রিন বন্ধ
-                </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {renderFilterBar()}
+                {renderCollectionTabs()}
               </div>
             </div>
 
