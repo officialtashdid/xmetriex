@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Analytics } from "@vercel/analytics/next";
+import { TopLoadingBar } from "@/components/shared/TopLoadingBar";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.aarohon.com"),
@@ -46,6 +47,8 @@ export default function RootLayout({
   return (
     <html lang="bn">
       <body className="bg-slate-50 text-slate-800 min-h-screen flex flex-col overflow-x-hidden antialiased font-bengali">
+        {/* ক্লিকের সাথে সাথে সাড়া — নেভিগেশন/সার্ভার-কল চলাকালীন অ্যানিমেটেড বার */}
+        <TopLoadingBar />
         {children}
         <Analytics />
       </body>
