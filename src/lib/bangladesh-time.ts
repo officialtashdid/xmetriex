@@ -21,7 +21,7 @@ let timeSync: TimeSyncState = {
  * scripted client could fetch the key and submit a perfect score inside the
  * live window (see isAnswerTimeReached).
  */
-export const LIVE_GRACE_MS = 10 * 1000;
+export const LIVE_GRACE_MS = 45 * 1000;
 
 export function parseBangladeshDateTime(dtStr?: string | null): Date | null {
   if (!dtStr) return null;

@@ -446,7 +446,7 @@ export default function ExamPage() {
   const handleAutoSubmit = () => {
     if (isSubmitting) return;
     setIsConfirmModalOpen(false);
-    alert("পরীক্ষার নির্ধারিত সময় সমাপ্ত হয়েছে! আপনার উত্তরপত্র জমা দেওয়া হচ্ছে।");
+    // Removed blocking alert() so that auto-submit executes immediately
     doSubmit(0);
   };
 
