@@ -92,6 +92,7 @@ export default function StudentPerformancePage() {
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [expandedSubId, setExpandedSubId] = useState<string | number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +116,26 @@ export default function StudentPerformancePage() {
       cancelled = true;
     };
   }, [studentId]);
+
+  const toggleExpand = (id: string | number) => {
+    setExpandedSubId(prev => prev === id ? null : id);
+  };
+
+  const formatAnswers = (answers: any[]) => {
+    if (!answers || !Array.isArray(answers)) return "উত্তর পাওয়া যায়নি";
+    return answers.map((a, i) => {
+      let ansVal: number | null = null;
+      if (typeof a === "number") ansVal = a;
+      else if (a && typeof a === "object" && "ans" in a) ansVal = a.ans;
+      
+      const valStr = ansVal === 0 ? "ক" : ansVal === 1 ? "খ" : ansVal === 2 ? "গ" : ansVal === 3 ? "ঘ" : "—";
+      return (
+        <span key={i} className={`inline-block px-1.5 py-0.5 m-0.5 rounded text-[11px] font-bold ${ansVal === null ? 'bg-slate-100 text-slate-500' : 'bg-indigo-50 text-indigo-700 border border-indigo-100'}`}>
+          {toBengaliDigits(i + 1)}:{valStr}
+        </span>
+      );
+    });
+  };
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -310,10 +331,14 @@ export default function StudentPerformancePage() {
                 const isPassed = !isPending && meta ? score >= meta.passMark : undefined;
                 const accuracy =
                   s.totalQuestions > 0 ? Math.round(((Number(s.correct) || 0) / s.totalQuestions) * 100) : 0;
+                const subId = s.id || idx;
+                const isExpanded = expandedSubId === subId;
+
                 return (
                   <div
-                    key={s.id || idx}
-                    className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-white hover:border-indigo-300 transition flex flex-col gap-3"
+                    key={subId}
+                    className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-white hover:border-indigo-300 transition flex flex-col gap-3 cursor-pointer"
+                    onClick={() => toggleExpand(subId)}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="min-w-0 space-y-1.5">
@@ -395,6 +420,17 @@ export default function StudentPerformancePage() {
                         </div>
                       </div>
                     </div>
+
+                    {isExpanded && (
+                      <div className="mt-2 pt-3 border-t border-slate-100">
+                        <h4 className="text-[11px] font-bold text-slate-500 mb-2 flex items-center gap-1.5">
+                          <BookOpen className="w-3.5 h-3.5" /> শিক্ষার্থীর দেওয়া উত্তরসমূহ:
+                        </h4>
+                        <div className="flex flex-wrap gap-1">
+                          {formatAnswers(s.answers)}
+                        </div>
+                      </div>
+                    )}
 
                     {meta?.course && (
                       <p className="text-[10px] text-slate-400 font-semibold border-t border-slate-100 pt-2">
