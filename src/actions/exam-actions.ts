@@ -1132,22 +1132,42 @@ export async function getMySubmissions(
         const rawAnswers = Array.isArray(row.answers) ? row.answers : [];
         let cor = 0;
         let incor = 0;
-        rawAnswers.forEach((v: any, qIdx: number) => {
-          const sol = solutions[qIdx];
-          if (v !== null && v !== -1 && v !== undefined && sol) {
-            if (Number(v) === sol.correct) cor++;
-            else incor++;
-          }
-        });
+        
+        const isNewFormat = rawAnswers.length > 0 && typeof rawAnswers[0] === 'object' && rawAnswers[0] !== null && 'qid' in rawAnswers[0];
+        
+        if (isNewFormat) {
+          const answerMap = new Map<string, number>();
+          rawAnswers.forEach((a: any) => {
+            if (a && a.qid) answerMap.set(a.qid, Number(a.ans));
+          });
+          solutions.forEach((sol) => {
+            const ans = sol.id != null && answerMap.has(sol.id) ? answerMap.get(sol.id) : -1;
+            if (ans !== undefined && ans !== -1 && sol) {
+              if (ans === sol.correct) cor++;
+              else incor++;
+            }
+          });
+        } else {
+          rawAnswers.forEach((v: any, qIdx: number) => {
+            const sol = solutions[qIdx];
+            if (v !== null && v !== -1 && v !== undefined && sol) {
+              if (Number(v) === sol.correct) cor++;
+              else incor++;
+            }
+          });
+        }
+
         const sc = Math.max(0, cor - incor * 0.5);
-        await supabase
-          .from("submissions")
-          .update({ score: sc, correct: cor, incorrect: incor, is_pending_evaluation: false })
-          .eq("id", row.id);
-        row.score = sc;
-        row.correct = cor;
-        row.incorrect = incor;
-        row.is_pending_evaluation = false;
+        if (row.score !== sc || row.correct !== cor || row.incorrect !== incor || row.is_pending_evaluation) {
+          await supabase
+            .from("submissions")
+            .update({ score: sc, correct: cor, incorrect: incor, is_pending_evaluation: false })
+            .eq("id", row.id);
+          row.score = sc;
+          row.correct = cor;
+          row.incorrect = incor;
+          row.is_pending_evaluation = false;
+        }
       }
     }
 
@@ -1156,7 +1176,12 @@ export async function getMySubmissions(
       correct: Number(row.correct ?? 0),
       incorrect: Number(row.incorrect ?? 0),
       answers: Array.isArray(row.answers)
-        ? row.answers.map((v: any) => (v === -1 || v === null ? null : Number(v)))
+        ? row.answers.map((v: any) => {
+            if (typeof v === 'object' && v !== null && 'qid' in v) {
+               return v;
+            }
+            return (v === -1 || v === null ? null : Number(v));
+          })
         : [],
       isPendingEvaluation: !!row.is_pending_evaluation,
       isLiveSubmission: !!row.is_live_submission,

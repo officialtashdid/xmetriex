@@ -976,6 +976,9 @@ export async function addQuestionToExam(
     });
     if (tqError) throw tqError;
 
+    // Mark all submissions as pending so they recalculate the score for everyone
+    await supabase.from("submissions").update({ is_pending_evaluation: true }).eq("exam_key", examKey);
+
     invalidateConfigCache();
     return true;
   } catch (err: any) {
@@ -1043,6 +1046,9 @@ export async function linkQuestionToExam(
       }
       throw linkError;
     }
+
+    // Mark all submissions as pending so they recalculate the score for everyone
+    await supabase.from("submissions").update({ is_pending_evaluation: true }).eq("exam_key", examKey);
 
     invalidateConfigCache();
     return { ok: true };
@@ -1238,6 +1244,9 @@ export async function updateQuestionInExam(
         exam_key: examKey
       });
     }
+
+    // Mark all submissions as pending so they recalculate the score for everyone
+    await supabase.from("submissions").update({ is_pending_evaluation: true }).eq("exam_key", examKey);
 
     invalidateConfigCache();
     return true;
@@ -1535,6 +1544,9 @@ export async function deleteQuestionFromExam(examKey: string, index: number): Pr
 
     await Promise.all(batchUpdates);
 
+    // Mark all submissions as pending so they recalculate the score for everyone
+    await supabase.from("submissions").update({ is_pending_evaluation: true }).eq("exam_key", examKey);
+
     invalidateConfigCache();
     return true;
   } catch (err) {
@@ -1612,6 +1624,9 @@ export async function bulkDeleteQuestionsFromExam(
     );
 
     await Promise.all(batchUpdates);
+
+    // Mark all submissions as pending so they recalculate the score for everyone
+    await supabase.from("submissions").update({ is_pending_evaluation: true }).eq("exam_key", examKey);
 
     invalidateConfigCache();
     return true;
@@ -1730,7 +1745,7 @@ export async function getAllSubmissions(): Promise<Submission[]> {
 
     if (error) throw error;
 
-    return (data || []).map((row) => ({
+    const subs = (data || []).map((row) => ({
       id: row.id,
       studentName: row.student_name,
       studentId: row.student_id,
@@ -1742,12 +1757,73 @@ export async function getAllSubmissions(): Promise<Submission[]> {
       totalQuestions: Number(row.total_questions ?? 0),
       timeSpent: row.time_spent,
       answers: Array.isArray(row.answers)
-        ? row.answers.map((v: any) => (v === -1 || v === null ? null : Number(v)))
+        ? row.answers.map((v: any) => {
+            if (typeof v === 'object' && v !== null && 'qid' in v) {
+               return v;
+            }
+            return (v === -1 || v === null ? null : Number(v));
+          })
         : [],
       isPendingEvaluation: row.is_pending_evaluation,
       isLiveSubmission: row.is_live_submission,
       submittedAtISO: row.submitted_at
     }));
+
+    const solutionsCache = new Map();
+    const evaluateJobs: Promise<any>[] = [];
+
+    for (const s of subs) {
+      if (s.isPendingEvaluation) {
+        let solutionsPromise = solutionsCache.get(s.examKey);
+        if (!solutionsPromise) {
+          solutionsPromise = getExamSolutions(s.examKey);
+          solutionsCache.set(s.examKey, solutionsPromise);
+        }
+        const solutions = await solutionsPromise;
+        if (solutions && s.answers) {
+          let cor = 0;
+          let incor = 0;
+          const isNewFormat = s.answers.length > 0 && typeof s.answers[0] === "object" && s.answers[0] !== null && "qid" in s.answers[0];
+          if (isNewFormat) {
+             const answerMap = new Map();
+             s.answers.forEach((a: any) => { if (a && typeof a === 'object' && 'qid' in a) answerMap.set(a.qid, Number(a.ans)); });
+             solutions.forEach((sol: any) => {
+               const ans = sol.id != null && answerMap.has(sol.id) ? answerMap.get(sol.id) : -1;
+               if (ans !== undefined && ans !== -1 && sol) {
+                  if (ans === sol.correct) cor++;
+                  else incor++;
+               }
+             });
+          } else {
+             s.answers.forEach((ans: any, idx: number) => {
+               const sol = solutions[idx];
+               if (ans !== null && sol) {
+                 if (Number(ans) === sol.correct) cor++;
+                 else incor++;
+               }
+             });
+          }
+          const newScore = Math.max(0, cor - incor * 0.5);
+          s.correct = cor;
+          s.incorrect = incor;
+          s.score = newScore;
+          s.isPendingEvaluation = false;
+          evaluateJobs.push(
+            supabase.from("submissions").update({
+              score: newScore,
+              correct: cor,
+              incorrect: incor,
+              is_pending_evaluation: false
+            }).eq("id", s.id)
+          );
+        }
+      }
+    }
+    if (evaluateJobs.length > 0) {
+      await Promise.all(evaluateJobs);
+    }
+
+    return subs;
   } catch (err) {
     console.error("Fetch all submissions error:", err);
     return [];

@@ -217,7 +217,12 @@ export async function getStudentSubmissions(studentId: string): Promise<Submissi
       totalQuestions: Number(row.total_questions ?? 0),
       timeSpent: row.time_spent,
       answers: Array.isArray(row.answers)
-        ? row.answers.map((v: any) => (v === -1 || v === null ? null : Number(v)))
+        ? row.answers.map((v: any) => {
+            if (typeof v === 'object' && v !== null && 'qid' in v) {
+               return v;
+            }
+            return (v === -1 || v === null ? null : Number(v));
+          })
         : [],
       isPendingEvaluation: row.is_pending_evaluation,
       isLiveSubmission: row.is_live_submission,
@@ -388,7 +393,12 @@ export async function getStudentPortalData(
     totalQuestions: Number(row.total_questions ?? 0),
     timeSpent: row.time_spent,
     answers: Array.isArray(row.answers)
-      ? row.answers.map((v: any) => (v === -1 || v === null ? null : Number(v)))
+      ? row.answers.map((v: any) => {
+          if (typeof v === 'object' && v !== null && 'qid' in v) {
+             return v;
+          }
+          return (v === -1 || v === null ? null : Number(v));
+        })
       : [],
     isPendingEvaluation: row.is_pending_evaluation,
     isLiveSubmission: row.is_live_submission,
@@ -1144,7 +1154,12 @@ export async function getStudentExamHistoryForTeacher(rawStudentId: string): Pro
       totalQuestions: Number(r.total_questions ?? 0),
       timeSpent: r.time_spent,
       answers: Array.isArray(r.answers)
-        ? r.answers.map((v: any) => (v === -1 || v === null ? null : Number(v)))
+        ? r.answers.map((v: any) => {
+            if (typeof v === 'object' && v !== null && 'qid' in v) {
+               return v;
+            }
+            return (v === -1 || v === null ? null : Number(v));
+          })
         : [],
       isPendingEvaluation: !!r.is_pending_evaluation,
       isLiveSubmission: !!r.is_live_submission,
