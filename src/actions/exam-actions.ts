@@ -61,11 +61,14 @@ export async function getExamSolutions(examKey: string): Promise<QuestionSolutio
       .order("order_index", { ascending: true });
 
     if (!linkError && links && links.length > 0) {
-      return links.map((l: any) => ({
-        id: l.question_bank?.id,
-        correct: l.question_bank?.correct ?? 0,
-        exp: l.question_bank?.exp ?? ""
-      }));
+      return links.map((l: any) => {
+        const qb = Array.isArray(l.question_bank) ? l.question_bank[0] : l.question_bank;
+        return {
+          id: qb?.id,
+          correct: qb?.correct ?? 0,
+          exp: qb?.exp ?? ""
+        };
+      });
     }
 
     // 2. Fallback to exam_questions view if any
@@ -144,12 +147,15 @@ export async function getExamResultBundle(examKey: string): Promise<{
       (a: any, b: any) => Number(a.order_index) - Number(b.order_index)
     );
 
-    const questions = sorted.map((l: any) => ({
-      id: l.question_bank?.id,
-      q: l.question_bank?.q || "",
-      opts: l.question_bank?.opts || [],
-      topic: l.question_bank?.topic || undefined
-    }));
+    const questions = sorted.map((l: any) => {
+      const qb = Array.isArray(l.question_bank) ? l.question_bank[0] : l.question_bank;
+      return {
+        id: qb?.id,
+        q: qb?.q || "",
+        opts: qb?.opts || [],
+        topic: qb?.topic || undefined
+      };
+    });
 
     // উত্তর কী কেবল রিলিজের পরে (নিরাপত্তা অপরিবর্তিত)
     const { isAnswerTimeReached } = await import("@/lib/bangladesh-time");
@@ -158,10 +164,13 @@ export async function getExamResultBundle(examKey: string): Promise<{
     const released = teacher || isAnswerTimeReached(exam);
 
     const solutions: QuestionSolution[] | null = released
-      ? sorted.map((l: any) => ({
-          correct: Number(l.question_bank?.correct ?? 0),
-          exp: l.question_bank?.exp || ""
-        }))
+      ? sorted.map((l: any) => {
+          const qb = Array.isArray(l.question_bank) ? l.question_bank[0] : l.question_bank;
+          return {
+            correct: Number(qb?.correct ?? 0),
+            exp: qb?.exp || ""
+          };
+        })
       : null;
 
     return { exam, questions, solutions };
