@@ -154,8 +154,10 @@ export async function getPracticeTopics(studentId?: string, email?: string): Pro
     const links = linksRes.data;
 
     (links || []).forEach((link: any) => {
-      const q = link.question_bank?.q;
-      const t = String(link.question_bank?.topic || "").trim();
+      const rawQ = link.question_bank;
+      const qb = Array.isArray(rawQ) ? rawQ[0] : rawQ;
+      const q = qb?.q;
+      const t = String(qb?.topic || "").trim();
       if (t && q) {
         if (!topicCountMap.has(t)) topicCountMap.set(t, 0);
         if (canSee(q, link.exam_id)) {
@@ -368,7 +370,7 @@ export async function getPracticeQuestions(
     for (const ex of allExams || []) {
       const examQuestions = (byExam[ex.id] || [])
         .sort((a: any, b: any) => Number(a.order_index) - Number(b.order_index))
-        .map((l: any) => l.question_bank)
+        .map((l: any) => Array.isArray(l.question_bank) ? l.question_bank[0] : l.question_bank)
         .filter(Boolean);
 
       if (examQuestions.length === 0) continue;
