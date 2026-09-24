@@ -2246,12 +2246,15 @@ export async function fetchExamWithQuestions(examKey: string): Promise<Exam | nu
 
     const sortedQs = (links || [])
       .sort((a: any, b: any) => Number(a.order_index) - Number(b.order_index))
-      .map((l: any) => ({
-        id: l.question_bank?.id,
-        q: l.question_bank?.q || "",
-        opts: l.question_bank?.opts || [],
-        topic: l.question_bank?.topic || undefined
-      }));
+      .map((l: any) => {
+        const qb = Array.isArray(l.question_bank) ? l.question_bank[0] : l.question_bank;
+        return {
+          id: qb?.id,
+          q: qb?.q || "",
+          opts: qb?.opts || [],
+          topic: qb?.topic || undefined
+        };
+      });
 
     return {
       id: ex.id,
@@ -2300,14 +2303,17 @@ export async function fetchExamForDemo(examKey: string): Promise<Exam | null> {
 
     const sortedQs = (links || [])
       .sort((a: any, b: any) => Number(a.order_index) - Number(b.order_index))
-      .map((l: any) => ({
-        id: l.question_bank?.id,
-        q: l.question_bank?.q || "",
-        opts: l.question_bank?.opts || [],
-        correct: Number(l.question_bank?.correct ?? 0),
-        exp: l.question_bank?.exp || "",
-        topic: l.question_bank?.topic || undefined
-      }));
+      .map((l: any) => {
+        const qb = Array.isArray(l.question_bank) ? l.question_bank[0] : l.question_bank;
+        return {
+          id: qb?.id,
+          q: qb?.q || "",
+          opts: qb?.opts || [],
+          correct: Number(qb?.correct ?? 0),
+          exp: qb?.exp || "",
+          topic: qb?.topic || undefined
+        };
+      });
 
     return {
       id: ex.id,
