@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, UserPlus, CheckCircle2, ShieldCheck, ArrowRight, Sparkles, LogIn } from "lucide-react";
+import { X, UserPlus, CheckCircle2, ShieldCheck, ArrowRight, Sparkles, LogIn, Hash, Ticket } from "lucide-react";
 import { submitEnrollRequest } from "@/actions/enroll-actions";
 import { getLocalStudentUser, loginWithGoogle, StudentUser } from "@/lib/student-auth";
 
@@ -258,17 +258,17 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
                     </div>
                   </div>
 
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-bold text-slate-700">
+                  <div className="bg-indigo-50/50 p-3 sm:p-4 rounded-2xl border border-indigo-100/50">
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="block text-xs sm:text-sm font-bold text-slate-800">
                         কোর্স নির্বাচন করুন (একাধিক সিলেক্ট করা যাবে) <span className="text-rose-500">*</span>
                       </label>
-                      <span className="text-xs text-indigo-600 font-bold">
+                      <span className="bg-indigo-100 text-indigo-700 text-[10px] sm:text-xs font-bold px-2.5 py-1 rounded-full">
                         {selectedCourses.length}টি নির্বাচিত
                       </span>
                     </div>
                     
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1 bg-slate-50/70 rounded-2xl border border-slate-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-40 overflow-y-auto pr-1">
                       {courses.map((c) => {
                         const isChecked = selectedCourses.includes(c);
                         return (
@@ -276,80 +276,100 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
                             key={c}
                             type="button"
                             onClick={() => handleToggleCourse(c)}
-                            className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-2 cursor-pointer text-left ${
+                            className={`p-3 rounded-xl border-2 text-xs font-bold transition-all duration-200 flex items-center gap-3 cursor-pointer text-left group ${
                               isChecked
-                                ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
-                                : "bg-white border-slate-200 text-slate-700 hover:border-indigo-300"
+                                ? "bg-white border-indigo-600 shadow-sm shadow-indigo-100/50"
+                                : "bg-white border-transparent shadow-sm hover:border-indigo-300 hover:shadow-md"
                             }`}
                           >
                             <span
-                              className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
                                 isChecked
-                                  ? "bg-white border-white text-indigo-700"
-                                  : "border-slate-300 bg-slate-50"
+                                  ? "bg-indigo-600 border-indigo-600"
+                                  : "border-slate-300 group-hover:border-indigo-400"
                               }`}
                             >
-                              {isChecked && <CheckCircle2 className="w-3.5 h-3.5 fill-indigo-600 text-white" />}
+                              {isChecked && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
                             </span>
-                            <span className="truncate">{c}</span>
+                            <span className={isChecked ? "text-indigo-900 truncate" : "text-slate-700 truncate"}>{c}</span>
                           </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700 ml-1">
                       আপনার পূর্ণ নাম <span className="text-rose-500">*</span>
                     </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="যেমন: আব্দুর রহিম"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs sm:text-sm bg-slate-50/50 hover:bg-white focus:bg-white transition"
-                    />
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                        <UserPlus className="h-4 w-4 text-slate-400" />
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        placeholder="যেমন: আব্দুর রহিম"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-xs sm:text-sm bg-slate-50/50 hover:bg-white focus:bg-white transition-all shadow-sm"
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      বিকাশ/নগদ ট্রান্সেকশন আইডি (TrxID) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="যেমন: 9H8G7F6E"
-                      value={trxId}
-                      onChange={(e) => setTrxId(e.target.value.toUpperCase())}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs sm:text-sm font-mono uppercase bg-slate-50/50 hover:bg-white focus:bg-white transition"
-                    />
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      bKash/Nagad থেকে পাওয়া পুরো TrxID লিখুন — অক্ষর-সংখ্যা যেকোনোটা চলবে
-                    </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-700 ml-1">
+                        ট্রান্সেকশন আইডি <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                          <Hash className="h-4 w-4 text-indigo-400" />
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          placeholder="যেমন: 9H8G7F6E"
+                          value={trxId}
+                          onChange={(e) => setTrxId(e.target.value.toUpperCase())}
+                          className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-xs sm:text-sm font-mono uppercase bg-slate-50/50 hover:bg-white focus:bg-white transition-all shadow-sm"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-500 ml-1 leading-tight">
+                        bKash/Nagad থেকে পাওয়া TrxID
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-700 ml-1">
+                        কুপন কোড
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                          <Ticket className="h-4 w-4 text-emerald-400" />
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="যেমন: AROHON50"
+                          value={coupon}
+                          onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+                          className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-xs sm:text-sm font-mono uppercase bg-slate-50/50 hover:bg-white focus:bg-white transition-all shadow-sm"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-500 ml-1 leading-tight">
+                        যদি থাকে (ঐচ্ছিক)
+                      </p>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      কুপন কোড (যদি থাকে)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="যেমন: AROHON50"
-                      value={coupon}
-                      onChange={(e) => setCoupon(e.target.value.toUpperCase())}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm font-mono uppercase bg-slate-50/50 hover:bg-white focus:bg-white transition"
-                    />
-                  </div>
-
-                  <div className="pt-2">
+                  <div className="pt-4">
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl transition text-xs sm:text-sm shadow-md shadow-indigo-600/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.99]"
+                      className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-bold py-3.5 rounded-xl transition-all duration-300 text-xs sm:text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed active:scale-[0.98] group"
                     >
                       <span>{isLoading ? "জমা হচ্ছে..." : "রিকোয়েস্ট সাবমিট করুন"}</span>
-                      <ArrowRight className="w-4 h-4" />
+                      {!isLoading && <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />}
                     </button>
                   </div>
                 </form>
