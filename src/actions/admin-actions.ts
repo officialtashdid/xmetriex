@@ -1809,12 +1809,15 @@ export async function getAllSubmissions(): Promise<Submission[]> {
           s.score = newScore;
           s.isPendingEvaluation = false;
           evaluateJobs.push(
-            supabase.from("submissions").update({
-              score: newScore,
-              correct: cor,
-              incorrect: incor,
-              is_pending_evaluation: false
-            }).eq("id", s.id)
+            (async () => {
+              const { error } = await supabase.from("submissions").update({
+                score: newScore,
+                correct: cor,
+                incorrect: incor,
+                is_pending_evaluation: false
+              }).eq("id", s.id);
+              if (error) throw error;
+            })()
           );
         }
       }
