@@ -206,7 +206,7 @@ export async function fetchAppConfig(forceRefresh = false): Promise<AppConfigDat
         const questionsByExam: Record<string, { order: number; question: QuestionItem }[]> = {};
         (linksRes?.data || []).forEach((link: any) => {
           const examId = link.exam_id;
-          const qData = link.question_bank;
+          const qData = Array.isArray(link.question_bank) ? link.question_bank[0] : link.question_bank;
           if (!qData) return;
 
           if (!questionsByExam[examId]) {
@@ -358,10 +358,11 @@ export async function fetchAppConfigLite(): Promise<AppConfigData> {
       const questionsByExam: Record<string, { q: string; opts: string[]; topic?: string }[]> = {};
       (linksRes?.data || []).forEach((link: any) => {
         if (!questionsByExam[link.exam_id]) questionsByExam[link.exam_id] = [];
+        const qb = Array.isArray(link.question_bank) ? link.question_bank[0] : link.question_bank;
         questionsByExam[link.exam_id].push({
           q: "",
           opts: [],
-          topic: link.question_bank?.topic || undefined
+          topic: qb?.topic || undefined
         });
       });
 
