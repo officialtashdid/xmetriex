@@ -889,12 +889,12 @@ export async function renameCourse(
     try {
       const { data: studentsToUpdate } = await supabase
         .from("allowed_students")
-        .select("id, courses")
+        .select("*")
         .contains("courses", [oldV]);
 
       if (studentsToUpdate && studentsToUpdate.length > 0) {
         const updatedStudents = studentsToUpdate.map((s: any) => ({
-          id: s.id,
+          ...s,
           courses: Array.isArray(s.courses) 
             ? s.courses.map((c: string) => c === oldV ? newV : c)
             : s.courses
