@@ -908,6 +908,13 @@ export async function renameCourse(
       console.error("Failed to update allowed_students on course rename:", err);
     }
 
+    // 8. enroll_requests: Update pending enrollments to the new course name
+    try {
+      await supabase.from("enroll_requests").update({ course: newV }).eq("course", oldV);
+    } catch {
+      // ignore if missing table or error
+    }
+
     invalidateConfigCache();
     return { success: true };
   } catch (err) {
