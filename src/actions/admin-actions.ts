@@ -885,6 +885,29 @@ export async function renameCourse(
       // ignore missing table
     }
 
+    // 7. allowed_students: Update enrolled students to the new course name
+    try {
+      const { data: studentsToUpdate } = await supabase
+        .from("allowed_students")
+        .select("id, courses")
+        .contains("courses", [oldV]);
+
+      if (studentsToUpdate && studentsToUpdate.length > 0) {
+        const updatedStudents = studentsToUpdate.map((s: any) => ({
+          id: s.id,
+          courses: Array.isArray(s.courses) 
+            ? s.courses.map((c: string) => c === oldV ? newV : c)
+            : s.courses
+        }));
+
+        for (let i = 0; i < updatedStudents.length; i += 100) {
+          await supabase.from("allowed_students").upsert(updatedStudents.slice(i, i + 100));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to update allowed_students on course rename:", err);
+    }
+
     invalidateConfigCache();
     return { success: true };
   } catch (err) {
